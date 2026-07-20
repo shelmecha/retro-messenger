@@ -71,6 +71,15 @@ async function doFetch(url, opts, timeout, kind) {
     } catch (_) {
       return BAD_RESPONSE;
     }
+    // Backend reported a real error as JSON (e.g. Gemini overloaded) — surface
+    // its actual message rather than the generic "bad response".
+    if (data && typeof data === "object" && data.ok === false) {
+      return {
+        ok: false,
+        code: data.code || "BACKEND_ERROR",
+        message: data.error || data.message || "The backend reported an error.",
+      };
+    }
     if (kind === "summary" && !looksLikeSummary(data)) return BAD_RESPONSE;
     if (kind === "action" && !looksLikeActionResult(data)) return BAD_RESPONSE;
     return { ok: true, mock: false, data };

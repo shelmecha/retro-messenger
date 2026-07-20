@@ -317,6 +317,8 @@
         "Your backend answered, but not with a real summary — usually that means the script crashed, " +
         "or the live deployment is an older version. In Apps Script: check the Execution log, then " +
         "Deploy → Manage deployments → ✏️ → New version → Deploy.";
+    } else if (code === "BACKEND_ERROR") {
+      msg = (r && r.message) || "The backend hit an error. It's often temporary (Gemini busy) — try again in a minute.";
     } else if (code.startsWith("HTTP_")) {
       msg = `The backend answered with an error (${code.slice(5)}). Is it active and deployed?`;
     } else {

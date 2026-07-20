@@ -2,6 +2,10 @@
 
 All notable changes, newest first. Version shows in the title bar and Settings.
 
+## v0.6.2
+- **Resilient to Gemini overload** — the backend now auto-retries with backoff when Gemini is briefly overloaded (HTTP 503/500/429) instead of failing, so demand spikes heal themselves.
+- Backend errors now come back as clean JSON, so the app shows the **real reason** ("Gemini is temporarily overloaded — try again") instead of a generic "not a real summary" message.
+
 ## v0.6.1
 - **Auto-update** — the app now checks GitHub Releases, downloads new versions in the background, and shows a "🔄 Restart & update" button. No more manual reinstalls after this version.
 

@@ -44,9 +44,15 @@ const EMPTY_SUMMARY = {
 /* ============================ ROUTING ============================ */
 
 function doGet(e) {
-  const action = (e && e.parameter && e.parameter.action) || "latest";
-  if (action === "run") return json(runTriage());
-  return json(getLatest());
+  try {
+    const action = (e && e.parameter && e.parameter.action) || "latest";
+    if (action === "run") return json(runTriage());
+    return json(getLatest());
+  } catch (err) {
+    // Return the error AS JSON so the app can show the real reason instead of
+    // an un-parseable HTML crash page.
+    return json({ ok: false, code: "BACKEND_ERROR", error: String((err && err.message) || err) });
+  }
 }
 
 function doPost(e) {
@@ -54,29 +60,37 @@ function doPost(e) {
   try {
     body = JSON.parse(e.postData.contents);
   } catch (_) {}
+  try {
+    return json(route(body));
+  } catch (err) {
+    return json({ ok: false, code: "BACKEND_ERROR", error: String((err && err.message) || err) });
+  }
+}
+
+function route(body) {
   switch (body.action) {
     case "run":
-      return json(runTriage());
+      return runTriage();
     case "unsubscribe":
-      return json(doUnsubscribe(body.items || []));
+      return doUnsubscribe(body.items || []);
     case "label":
-      return json(doLabel(body.ids || []));
+      return doLabel(body.ids || []);
     case "draft":
-      return json(doDraft(body));
+      return doDraft(body);
     case "send":
-      return json(doSend(body));
+      return doSend(body);
     case "markRead":
-      return json(doMarkRead(body.ids || []));
+      return doMarkRead(body.ids || []);
     case "markUnread":
-      return json(doMarkUnread(body.ids || []));
+      return doMarkUnread(body.ids || []);
     case "thread":
-      return json(doThread(body));
+      return doThread(body);
     case "markAllRead":
-      return json(doMarkAllRead());
+      return doMarkAllRead();
     case "unarchive":
-      return json(doUnarchive(body.ids || []));
+      return doUnarchive(body.ids || []);
     default:
-      return json({ ok: false, error: "unknown action" });
+      return { ok: false, error: "unknown action" };
   }
 }
 
@@ -205,7 +219,10 @@ function geminiSummarize(items) {
   };
 
   let model = pickModel("");
-  for (let attempt = 0; attempt < 2; attempt++) {
+  let malformed = 0; // times the model returned unparseable JSON
+  let transient = 0; // times Google returned a temporary 5xx
+
+  for (let attempt = 0; attempt < 8; attempt++) {
     const url =
       "https://generativelanguage.googleapis.com/v1beta/models/" +
       model +
@@ -230,29 +247,44 @@ function geminiSummarize(items) {
           .join("") || "";
       const parsed = safeParseJson(text);
       if (parsed) return parsed;
-      if (attempt === 0) continue; // model hiccup — ask again once
+      if (++malformed < 2) continue; // model hiccup — ask again once
       throw new Error("Gemini answered with malformed JSON twice — run again in a minute.");
+    }
+
+    // Temporary overload/outage — back off and retry a few times so brief
+    // demand spikes heal themselves instead of surfacing as an error.
+    if ((code === 503 || code === 500 || code === 429) && transient < 3) {
+      transient++;
+      Utilities.sleep(2000 * transient); // 2s, 4s, 6s
+      continue;
     }
 
     if (code === 429) {
       throw new Error(
-        "Gemini rate/quota limit hit. Wait about a minute and run again " +
+        "Gemini is rate-limited right now. Wait about a minute and try again " +
           "(free tier allows ~10 requests per minute)."
       );
     }
 
-    if (code === 404 && attempt === 0) {
+    if (code === 503 || code === 500) {
+      throw new Error("Gemini is temporarily overloaded (high demand). Give it a minute and try again.");
+    }
+
+    if (code === 404 && model) {
       // Model retired/unavailable for this key — forget it and re-pick.
       PropertiesService.getScriptProperties().deleteProperty("pickedModel");
-      model = pickModel(model);
-      continue;
+      const next = pickModel(model);
+      if (next && next !== model) {
+        model = next;
+        continue;
+      }
     }
 
     throw new Error(
       "Gemini HTTP " + code + " on model '" + model + "': " + res.getContentText().slice(0, 200)
     );
   }
-  throw new Error("Gemini failed after retrying with a fallback model.");
+  throw new Error("Gemini kept failing after several retries — likely temporary. Try again shortly.");
 }
 
 // Defensive parse of model output (port of the n8n "Normalize" node's tricks).

@@ -1,6 +1,6 @@
 {
   "name": "retro-messenger",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "MSN/Windows-98 styled desktop inbox buddy — a retro messenger that greets you at login and triages your email.",
   "main": "main/main.js",
   "author": "Shelvi Alferez",
