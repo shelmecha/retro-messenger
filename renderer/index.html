@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; media-src 'self'"
+    />
+    <title>Retro Messenger</title>
+    <link rel="stylesheet" href="../node_modules/98.css/dist/98.css" />
+    <link rel="stylesheet" href="styles/retro.css" />
+  </head>
+  <body>
+    <div class="window messenger">
+      <!-- Fake title bar (drag region) -->
+      <div class="title-bar">
+        <div class="title-bar-text">
+          <span id="statusDot" class="status-dot" title="Connection status"></span>
+          InboxBot — Retro Messenger<span id="titleVersion" class="title-version"></span>
+        </div>
+        <div class="title-bar-controls">
+          <button aria-label="Minimize" id="btnMin"></button>
+          <button aria-label="Close" id="btnClose"></button>
+        </div>
+      </div>
+
+      <div class="window-body messenger-body">
+        <!-- Buddy header -->
+        <div class="buddy-header">
+          <div class="buddy-avatar">🤖</div>
+          <div class="buddy-meta">
+            <div class="buddy-name">InboxBot</div>
+            <div class="buddy-status" id="buddyStatus">Online — ready to help</div>
+          </div>
+          <div class="win-chip hidden" id="winChip"></div>
+        </div>
+
+        <!-- Session progress (fills as items are handled) -->
+        <div class="progress-row hidden" id="progressRow">
+          <span class="progress-label" id="progressLabel"></span>
+          <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+        </div>
+
+        <!-- Chat transcript -->
+        <div class="chat-scroll sunken-panel" id="messageList" tabindex="0"></div>
+
+        <!-- Quick-reply chip tray -->
+        <div class="chip-tray" id="chipTray"></div>
+      </div>
+    </div>
+
+    <!-- Settings overlay -->
+    <div class="overlay hidden" id="settingsOverlay">
+      <div class="window settings-window">
+        <div class="title-bar">
+          <div class="title-bar-text">⚙️ Settings</div>
+          <div class="title-bar-controls">
+            <button aria-label="Close" id="settingsClose"></button>
+          </div>
+        </div>
+        <div class="window-body">
+          <div class="field-row-stacked">
+            <label for="n8nUrl">Backend URL</label>
+            <input id="n8nUrl" type="text" placeholder="https://script.google.com/macros/s/…/exec" />
+            <p class="hint">Paste your Google Apps Script web-app URL (ends in /exec). n8n URLs also work.</p>
+          </div>
+
+          <div class="field-row">
+            <input id="chkMock" type="checkbox" />
+            <label for="chkMock">Demo mode (use bundled sample email)</label>
+          </div>
+          <div class="field-row">
+            <input id="chkAuto" type="checkbox" />
+            <label for="chkAuto">Launch at startup</label>
+          </div>
+          <div class="field-row">
+            <input id="chkSounds" type="checkbox" />
+            <label for="chkSounds">Play sounds</label>
+          </div>
+
+          <div class="settings-actions">
+            <button id="btnTest">Test connection</button>
+            <span id="testResult" class="test-result"></span>
+          </div>
+          <div class="settings-actions">
+            <button id="btnSaveSettings" class="default">Save</button>
+            <button id="btnCancelSettings">Cancel</button>
+          </div>
+          <p class="settings-version" id="settingsVersion"></p>
+        </div>
+      </div>
+    </div>
+
+    <script src="js/chat-ui.js"></script>
+    <script src="js/triage-render.js"></script>
+    <script src="js/settings-panel.js"></script>
+    <script src="js/flows.js"></script>
+    <script src="js/app.js"></script>
+  </body>
+</html>

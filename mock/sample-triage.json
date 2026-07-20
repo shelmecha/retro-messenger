@@ -1,0 +1,126 @@
+{
+  "headline": "2 things actually need you today — the rest is mostly noise you can clear in a minute.",
+  "generatedAt": "2026-07-20T08:00:00.000Z",
+  "unreadCount": 7,
+  "importantUrgent": [
+    {
+      "id": "m-urgent-1",
+      "from": "Rebecca Tan <rebecca@withbureau.com>",
+      "subject": "Re: CA service queue — need your call before 11am",
+      "age": "2h",
+      "link": "https://mail.google.com/mail/u/0/#all/m-urgent-1",
+      "why": "Your COO is waiting on a decision to unblock the Canada queue; she flagged it time-sensitive.",
+      "action": "Reply with a go/no-go on the escalation path.",
+      "suggestedReply": "Hi Rebecca — going with option B (route CA overflow to the AU night shift for this week). I'll brief Courtney this morning so the queue clears by EOD. Will confirm once it's live."
+    },
+    {
+      "id": "m-urgent-2",
+      "from": "HubSpot Alerts <no-reply@hubspot.com>",
+      "subject": "Deal 'Melbourne Airport — 12 booths' past due OPD",
+      "age": "5h",
+      "link": "https://mail.google.com/mail/u/0/#all/m-urgent-2",
+      "why": "A live deal's estimated delivery date passed with no reschedule — customer may chase.",
+      "action": "Push the OPD or note the payment blocker on the ticket.",
+      "suggestedReply": ""
+    }
+  ],
+  "starredOverdue": [
+    {
+      "id": "m-starred-1",
+      "link": "https://mail.google.com/mail/u/0/#all/m-starred-1",
+      "from": "Courtney Butler <courtney@withbureau.com>",
+      "subject": "Customisation spec — Perth split ticket",
+      "age": "6d",
+      "context": "You starred this 6 days ago and haven't replied; Courtney owns the customisation and is waiting.",
+      "suggestedReply": "Hey Courtney — sorry for the lag on this. The split looks right; go ahead and raise the Inflow SO for the swap and I'll approve today."
+    }
+  ],
+  "needsFollowUp": [
+    {
+      "id": "m-follow-1",
+      "link": "https://mail.google.com/mail/u/0/#all/m-follow-1",
+      "from": "Teya (Finance) <teya@withbureau.com>",
+      "subject": "Payment reconciliation — 3 tickets marked paid",
+      "age": "1d",
+      "suggestedReply": "Thanks Teya — confirming receipt. I'll flip the three tickets to Approved for Scheduling this afternoon."
+    },
+    {
+      "id": "m-follow-2",
+      "link": "https://mail.google.com/mail/u/0/#all/m-follow-2",
+      "from": "Radaro Support <support@radaro.com>",
+      "subject": "Driver report needs a serial number",
+      "age": "2d",
+      "suggestedReply": "Hi — the serial for that install is on the wrap-up photo I forwarded. Re-sending now; let me know if it doesn't come through."
+    }
+  ],
+  "whatsNew": [
+    {
+      "id": "m-new-1",
+      "link": "https://mail.google.com/mail/u/0/#all/m-new-1",
+      "from": "Notion <team@makenotion.com>",
+      "subject": "Your weekly workspace digest",
+      "age": "12h",
+      "why": "Routine product digest — no action, just FYI."
+    }
+  ],
+  "canUnsubscribe": [
+    {
+      "id": "m-unsub-1",
+      "link": "https://mail.google.com/mail/u/0/#all/m-unsub-1",
+      "from": "Webinar Weekly <hello@webinarweekly.io>",
+      "subject": "🔥 5 growth hacks you're not using (open now!)",
+      "age": "3h",
+      "reason": "Promotional blast you've never opened in 40+ sends.",
+      "unsubMethod": "oneclick",
+      "unsubTarget": "https://webinarweekly.io/unsub?u=abc123"
+    },
+    {
+      "id": "m-unsub-2",
+      "link": "https://mail.google.com/mail/u/0/#all/m-unsub-2",
+      "from": "DealsDaily <deals@dealsdaily.example>",
+      "subject": "Today only: 60% off everything",
+      "age": "8h",
+      "reason": "Daily marketing email, high volume, no engagement.",
+      "unsubMethod": "mailto",
+      "unsubTarget": "unsubscribe@dealsdaily.example"
+    },
+    {
+      "id": "m-unsub-3",
+      "link": "https://mail.google.com/mail/u/0/#all/m-unsub-3",
+      "from": "Conf Reminders <events@bigconf.example>",
+      "subject": "Last chance for early-bird pricing",
+      "age": "1d",
+      "reason": "Event you didn't register for; link-based opt-out.",
+      "unsubMethod": "link",
+      "unsubTarget": "https://bigconf.example/preferences"
+    }
+  ],
+  "keepSubscriptions": [
+    {
+      "id": "m-keep-1",
+      "link": "https://mail.google.com/mail/u/0/#all/m-keep-1",
+      "from": "Stratechery <mail@stratechery.com>",
+      "subject": "The state of AI assistants, mid-2026",
+      "age": "1d",
+      "why": "You open this most weeks — worth keeping, just file it."
+    },
+    {
+      "id": "m-keep-2",
+      "link": "https://mail.google.com/mail/u/0/#all/m-keep-2",
+      "from": "Lenny's Newsletter <lenny@substack.com>",
+      "subject": "How top PMs run their inbox",
+      "age": "2d",
+      "why": "Regularly read; keep and archive under Subscriptions."
+    }
+  ],
+  "cleanedUp": [
+    {
+      "id": "m-clean-1",
+      "link": "https://mail.google.com/mail/u/0/#all/m-clean-1",
+      "from": "Calendar <calendar-notification@google.com>",
+      "subject": "Accepted: Weekly AU Ops sync",
+      "age": "1d",
+      "reason": "Auto-notification, already actioned — safe to ignore."
+    }
+  ]
+}

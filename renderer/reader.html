@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:"
+    />
+    <title>Conversation — Retro Messenger</title>
+    <link rel="stylesheet" href="../node_modules/98.css/dist/98.css" />
+    <link rel="stylesheet" href="styles/retro.css" />
+  </head>
+  <body>
+    <div class="window messenger reader">
+      <div class="title-bar">
+        <div class="title-bar-text">💬 Conversation</div>
+        <div class="title-bar-controls">
+          <button aria-label="Close" id="readerClose"></button>
+        </div>
+      </div>
+
+      <div class="window-body messenger-body">
+        <div class="reader-subject" id="readerSubject">Loading…</div>
+
+        <div class="chat-scroll sunken-panel reader-thread" id="threadList" tabindex="0"></div>
+
+        <!-- Reply area (fills in once the thread loads) -->
+        <div class="reader-reply" id="replyArea"></div>
+
+        <div class="reader-actions">
+          <button id="btnReplyToggle" class="default">✍️ Reply</button>
+          <button id="btnOpenGmail">Open in Gmail ↗</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="js/reader.js"></script>
+  </body>
+</html>
