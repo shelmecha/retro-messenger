@@ -42,6 +42,12 @@
       window.Flows.menu();
     });
 
+    window.retro.onTrayCommand((payload) => {
+      if (!greetedOnce) return;
+      if (payload.action === "syncNew") window.Flows.syncNew();
+      if (payload.action === "refreshInbox") window.Flows.refreshInbox();
+    });
+
     // Auto-update: quiet while downloading, then offer a one-click restart.
     if (window.retro.update) {
       window.retro.update.onReady((p) => {

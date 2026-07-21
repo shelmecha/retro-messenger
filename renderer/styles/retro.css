@@ -321,7 +321,7 @@ body {
 }
 .mail-message.expanded {
   background: #fff;
-  cursor: default;
+  cursor: pointer;
   padding-bottom: 15px;
 }
 .mail-avatar {

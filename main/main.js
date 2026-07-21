@@ -10,13 +10,17 @@ const { autoUpdater } = require("electron-updater");
 let win = null;
 let readerWin = null; // second window: full-thread reader
 let tray = null;
+let trayMenu = null;
 let nudgeTimer = null;
 let wasHidden = false; // true only after the window has been hidden to tray
 
 const startedHidden = process.argv.includes("--hidden");
+const diagnosticPartition = process.env.RM_DIAG === "1" ? "retro-diag-" + process.pid : undefined;
 
 // ---- single instance ---------------------------------------------------
-const gotLock = app.requestSingleInstanceLock();
+// Diagnostics run in an isolated session and may coexist with Shelvi's installed
+// copy; normal launches still enforce exactly one InboxBot process group.
+const gotLock = process.env.RM_DIAG === "1" || app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
@@ -90,7 +94,7 @@ function createWindow() {
       sandbox: true,
       // Each diagnostic launch gets an in-memory session so saved user progress
       // cannot change test ordering or be erased by the test.
-      partition: process.env.RM_DIAG === "1" ? "retro-diag-" + process.pid : undefined,
+      partition: diagnosticPartition,
       preload: path.join(__dirname, "..", "preload", "preload.js"),
     },
   });
@@ -155,6 +159,7 @@ function openReader(payload) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      partition: diagnosticPartition,
       preload: path.join(__dirname, "..", "preload", "preload.js"),
     },
   });
@@ -196,22 +201,36 @@ function createTray() {
   tray = new Tray(img);
   tray.setToolTip("Retro Messenger");
 
-  const menu = Menu.buildFromTemplate([
-    { label: "Open", click: () => showWindow() },
+  trayMenu = Menu.buildFromTemplate([
+    { label: "Open InboxBot", click: () => showWindow() },
+    { type: "separator" },
+    { label: "Check New Emails", click: () => runTrayCommand("syncNew") },
+    { label: "Refresh Inbox Summary", click: () => runTrayCommand("refreshInbox") },
     { type: "separator" },
     { label: "Quit", click: () => quit() },
   ]);
-  tray.setContextMenu(menu);
+  tray.setContextMenu(trayMenu);
   tray.on("click", () => (win && win.isVisible() ? hideToTray() : showWindow()));
 }
 
-function showWindow() {
+function runTrayCommand(action) {
+  showWindow({ suppressWake: true });
+  if (!win || win.isDestroyed()) return;
+  const send = () => {
+    if (win && !win.isDestroyed()) win.webContents.send("tray:command", { action: action });
+  };
+  if (win.webContents.isLoading()) win.webContents.once("did-finish-load", send);
+  else send();
+}
+
+function showWindow(options) {
+  const opts = options || {};
   if (!win) createWindow();
   win.show();
   win.focus();
   // Only fire the "welcome back" wake when re-showing after a hide — not on
   // the initial launch (avoids a double greeting racing with renderer boot).
-  if (wasHidden) {
+  if (wasHidden && !opts.suppressWake) {
     win.webContents.send("app:wake", {});
   }
   wasHidden = false;
@@ -273,6 +292,8 @@ async function runDiagnostics() {
     log("menu chips:", await run("document.querySelectorAll('#chipTray button').length === 2"));
     log("manual-sync button:", await run("!!document.getElementById('btnSyncNew')"));
     log("tone-learning button:", await run("!!document.getElementById('btnLearnTone')"));
+    log("tray has check-new action:", trayMenu && trayMenu.items.some((item) => item.label === "Check New Emails"));
+    log("tray has full-refresh action:", trayMenu && trayMenu.items.some((item) => item.label === "Refresh Inbox Summary"));
     log("settings beside minimize:", await run("document.getElementById('btnMin').previousElementSibling.id === 'btnSettingsTitle'"));
     log("no bottom settings chip:", await run("![...document.querySelectorAll('#chipTray button')].some(b=>/settings/i.test(b.textContent))"));
     log("manual sync response:", await run("window.retro.triage.syncNew().then(r=>r.ok && r.data.addedCount === 1)"));
@@ -336,6 +357,7 @@ async function runDiagnostics() {
       log("reader avatars:", await rRun("document.querySelectorAll('.mail-avatar').length === 2"));
       log("reader previews:", await rRun("document.querySelectorAll('.mail-preview').length === 2"));
       log("reader newest expanded:", await rRun("document.querySelector('.mail-message:last-child').classList.contains('expanded')"));
+      log("expanded reader row uses pointer cursor:", await rRun("getComputedStyle(document.querySelector('.mail-message:last-child')).cursor === 'pointer'"));
       log("reader uses concise topic:", await rRun("document.getElementById('readerSubject').textContent === 'Canada queue escalation decision'"));
       log("reader hides sender emails:", await rRun("![...document.querySelectorAll('.mail-from')].some(e=>e.textContent.includes('@'))"));
       log("reader normal email has no quote line:", await rRun("!document.querySelector('.mail-message:first-child .mail-forwarded')"));
@@ -348,6 +370,8 @@ async function runDiagnostics() {
       }
       await rRun("document.querySelector('.mail-message').click()");
       log("reader rows expand in place:", await rRun("document.querySelector('.mail-message').classList.contains('expanded') && !document.querySelector('.mail-message:last-child').classList.contains('expanded')"));
+      await rRun("document.querySelector('.mail-message').click()");
+      log("reader row closes on second click:", await rRun("!document.querySelector('.mail-message.expanded')"));
       await rRun("document.getElementById('btnReplyToggle').click()");
       await new Promise((r) => setTimeout(r, 150));
       log("reader reply box:", await rRun("!!document.querySelector('.reply-box')"));
@@ -419,6 +443,22 @@ async function runDiagnostics() {
     await new Promise((r) => setTimeout(r, 600));
     log("post-sweep bubble:", await run("[...document.querySelectorAll('.msg-row.bot .bubble')].pop().textContent.slice(0,40)"));
     log("status dot class:", await run("document.getElementById('statusDot').className"));
+
+    // Hidden-icons menu commands should reveal the app and use the same guarded
+    // flows as the header buttons.
+    hideToTray();
+    log("tray test starts hidden:", !win.isVisible());
+    const syncBubbleCount = await run("document.querySelectorAll('.msg-row.bot .bubble').length");
+    runTrayCommand("syncNew");
+    await new Promise((r) => setTimeout(r, 1000));
+    log("tray check-new reveals app:", win.isVisible());
+    log("tray check-new reaches renderer:", await run("document.querySelectorAll('.msg-row.bot .bubble').length > " + syncBubbleCount));
+    const refreshBubbleCount = await run("[...document.querySelectorAll('.msg-row.bot .bubble')].filter(b=>/reading your inbox/i.test(b.textContent)).length");
+    hideToTray();
+    runTrayCommand("refreshInbox");
+    await new Promise((r) => setTimeout(r, 1600));
+    log("tray full-refresh reveals app:", win.isVisible());
+    log("tray full-refresh reaches renderer:", await run("[...document.querySelectorAll('.msg-row.bot .bubble')].filter(b=>/reading your inbox/i.test(b.textContent)).length > " + refreshBubbleCount));
 
     log("DONE — all assertions passed", true);
   } catch (e) {

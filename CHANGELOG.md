@@ -2,6 +2,11 @@
 
 All notable changes, newest first. Version shows in the title bar and Settings.
 
+## v0.7.7
+- **Click again to collapse** — an expanded email in the thread reader closes when clicked a second time, making the messages below easier to reach.
+- **Clear hover feedback** — expanded messages keep the hand cursor so it is obvious they can be clicked again to close.
+- **Inbox actions in the hidden-icons menu** — the tray menu can now open InboxBot, check only new emails, or refresh the full inbox summary.
+
 ## v0.7.6
 - **Emails load through Gemini limits** — when AI quota is unavailable, the backend returns a readable unsorted inbox instead of failing the entire scan.
 - **Reliable sender names** — thread messages resolve the sender from Gmail headers and remain compatible with older backend response fields.
