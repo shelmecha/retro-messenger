@@ -2,6 +2,15 @@
 
 All notable changes, newest first. Version shows in the title bar and Settings.
 
+## v0.7.6
+- **Emails load through Gemini limits** — when AI quota is unavailable, the backend returns a readable unsorted inbox instead of failing the entire scan.
+- **Reliable sender names** — thread messages resolve the sender from Gmail headers and remain compatible with older backend response fields.
+- **Fewer Gemini requests** — recent summaries are reused for ten minutes, and simultaneous refreshes share one request.
+- **Accurate quota guidance** — daily and short-term project limits are no longer mislabeled as a fixed ten-requests-per-minute limit.
+- **Forwarded content stays intact** — forwarded headers, quoted text, invoice links, and tracking links remain visible while ordinary duplicate reply history stays compact.
+- **Lower-cost tone learning** — writing-style analysis uses a smaller representative sample and a quota-friendly stable Flash-Lite model first.
+- **Safer summaries and scheduling** — omitted AI classifications can no longer hide emails, stale storage chunks are removed, and the optional morning trigger now skips weekends.
+
 ## v0.7.5
 - **Forward-only quote styling** — the vertical quote bar now appears only for Gmail or Outlook forwarded-message sections; ordinary emails stay unstyled.
 

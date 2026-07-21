@@ -5,6 +5,7 @@
   const params = new URLSearchParams(location.search);
   const id = params.get("id") || "";
   const requestedSubject = params.get("subject") || "";
+  const requestedFrom = params.get("from") || "";
   const subject = requestedSubject || "(no subject)";
   const link = params.get("link") || "";
 
@@ -12,6 +13,25 @@
     const d = document.createElement("div");
     d.textContent = s == null ? "" : String(s);
     return d.innerHTML;
+  }
+
+  function senderLabel(message, fallbackFrom) {
+    if (message && message.isMe) return "Shelvi";
+    const candidates = [
+      message && message.senderName,
+      message && message.from,
+      message && message.sender,
+      message && message.senderEmail,
+      fallbackFrom,
+    ];
+    const raw = String(candidates.find((value) => value && !/^unknown sender$/i.test(String(value).trim())) || "").trim();
+    if (!raw) return "Unknown sender";
+    const display = raw.replace(/<[^>]+>/g, "").replace(/^[\s'\"]+|[\s'\"]+$/g, "").trim();
+    if (display && !display.includes("@")) return display;
+    const emailMatch = raw.match(/<([^>]+)>/);
+    const address = String(emailMatch ? emailMatch[1] : raw).trim();
+    const local = address.split("@")[0].replace(/[._-]+/g, " ").trim();
+    return local.replace(/\b\w/g, (letter) => letter.toUpperCase()) || "Unknown sender";
   }
 
   function formatMailBody(value) {
@@ -73,7 +93,7 @@
       message.setAttribute("role", "button");
       message.setAttribute("aria-expanded", index === messages.length - 1 ? "true" : "false");
       message.style.setProperty("--stagger", `${Math.min(index * 35, 210)}ms`);
-      const name = String(m.senderName || "Unknown sender").trim();
+      const name = senderLabel(m, messages.length === 1 ? requestedFrom : "");
       const initials = name.split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase() || "?";
       message.innerHTML =
         `<div class="mail-avatar" aria-hidden="true">${esc(initials)}</div>` +
