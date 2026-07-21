@@ -4,7 +4,8 @@
 (function () {
   const params = new URLSearchParams(location.search);
   const id = params.get("id") || "";
-  const subject = params.get("subject") || "(no subject)";
+  const requestedSubject = params.get("subject") || "";
+  const subject = requestedSubject || "(no subject)";
   const link = params.get("link") || "";
 
   function esc(s) {
@@ -39,7 +40,7 @@
       return;
     }
     const data = r.data;
-    if (data.subject) subjEl.textContent = data.subject;
+    if (data.subject && !requestedSubject) subjEl.textContent = data.subject;
     const messages = data.messages || [];
     countEl.textContent = messages.length + " message" + (messages.length === 1 ? "" : "s");
     threadEl.innerHTML = "";

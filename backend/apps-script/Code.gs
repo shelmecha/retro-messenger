@@ -10,6 +10,8 @@
  * into the app's Settings. Full steps in SETUP-APPSSCRIPT.md.
  */
 
+const BACKEND_VERSION = "0.7.2";
+
 const CONFIG = {
   GEMINI_API_KEY: "PASTE_YOUR_GEMINI_KEY_HERE", // from https://aistudio.google.com/apikey
   // No hardcoded model — the script asks Google which models YOUR key can use
@@ -428,13 +430,13 @@ function buildPrompt(items) {
     "Return ONLY strict JSON with this exact shape (no markdown, no fences):",
     "{",
     '  "headline": "one warm human sentence summarizing what actually needs attention",',
-    '  "importantUrgent": [{"id":"","why":"","action":"","suggestedReply":""}],',
-    '  "needsFollowUp":   [{"id":"","suggestedReply":""}],',
-    '  "starredOverdue":  [{"id":"","context":"","suggestedReply":""}],',
-    '  "canUnsubscribe":  [{"id":"","reason":""}],',
-    '  "keepSubscriptions":[{"id":"","why":""}],',
-    '  "whatsNew":        [{"id":"","why":""}],',
-    '  "cleanedUp":       [{"id":"","reason":""}]',
+    '  "importantUrgent": [{"id":"","topic":"","why":"","action":"","suggestedReply":""}],',
+    '  "needsFollowUp":   [{"id":"","topic":"","suggestedReply":""}],',
+    '  "starredOverdue":  [{"id":"","topic":"","context":"","suggestedReply":""}],',
+    '  "canUnsubscribe":  [{"id":"","topic":"","reason":""}],',
+    '  "keepSubscriptions":[{"id":"","topic":"","why":""}],',
+    '  "whatsNew":        [{"id":"","topic":"","why":""}],',
+    '  "cleanedUp":       [{"id":"","topic":"","reason":""}]',
     "}",
     "Rules:",
     "- Every email goes in exactly ONE bucket. Use the email's id verbatim.",
@@ -442,6 +444,7 @@ function buildPrompt(items) {
     "- canUnsubscribe: promotional/newsletter noise, prefer ones where hasUnsub=true.",
     "- keepSubscriptions: newsletters that seem genuinely useful.",
     "- importantUrgent: real people or systems needing a decision/reply soon.",
+    "- topic: a plain 3–8 word description of what the message is actually about, not the original subject; maximum 60 characters.",
     "- suggestedReply: a short, natural draft in the user's voice (only where it helps).",
     tone ? "- Match this learned writing-style profile for suggestedReply: " + tone : "- Keep suggested replies warm, direct, and concise.",
     "- Keep every text field under 200 characters. Do not invent emails not listed.",
@@ -505,6 +508,7 @@ function mergeBuckets(parsed, items) {
           id: orig.id,
           from: orig.from,
           subject: orig.subject,
+          topic: g.topic || "",
           age: orig.age,
           link: orig.link || "",
           why: g.why || "",

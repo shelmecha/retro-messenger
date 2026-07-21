@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld("retro", {
   },
   thread: {
     get: (id) => ipcRenderer.invoke("thread:get", id),
+    preload: (ids) => ipcRenderer.invoke("thread:preload", ids),
   },
   reader: {
     open: (payload) => ipcRenderer.invoke("reader:open", payload),

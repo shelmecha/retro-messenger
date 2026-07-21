@@ -188,6 +188,7 @@
     }
     applyPersistence();
     updateProgress();
+    preloadSummaryThreads(incoming);
     UI.addBotMsg(`${added} new message${added === 1 ? " was" : "s were"} added. Your progress is preserved. 📬`);
     overview();
   }
@@ -216,12 +217,30 @@
     ]);
   }
 
+  function preloadSummaryThreads(data) {
+    if (!data || !window.retro.thread || !window.retro.thread.preload) return;
+    const ids = [];
+    T.ORDER.forEach((key) => {
+      (data[key] || []).forEach((item) => {
+        if (item && item.id && !item._handled && ids.length < 8) ids.push(item.id);
+      });
+    });
+    if (ids.length) void window.retro.thread.preload(ids);
+  }
+
   async function runTriage(fresh) {
     UI.setBuddyStatus("Reading your inbox…");
     UI.showTyping();
     UI.addBotMsg(fresh ? "On it — reading your inbox. This can take ~30 seconds. ⏳" : "Pulling up your last summary…");
     UI.scrollToEnd();
 
+    // While Gemini prepares a fresh board, warm the thread cache from the
+    // previous board so likely Read actions can open immediately.
+    if (fresh) {
+      void window.retro.triage.latest().then((previous) => {
+        if (previous && previous.ok) preloadSummaryThreads(previous.data);
+      });
+    }
     const r = fresh ? await window.retro.triage.run() : await window.retro.triage.latest();
     UI.hideTyping();
     UI.setBuddyStatus("Online — ready to help");
@@ -234,6 +253,7 @@
     celebrated = false;
     applyPersistence();
     updateProgress();
+    preloadSummaryThreads(summary);
     overview();
   }
 

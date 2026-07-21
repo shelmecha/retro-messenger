@@ -7,6 +7,7 @@
       "id": "m-urgent-1",
       "from": "Rebecca Tan <rebecca@withbureau.com>",
       "subject": "Re: CA service queue — need your call before 11am",
+      "topic": "Canada queue escalation decision",
       "age": "2h",
       "link": "https://mail.google.com/mail/u/0/#all/m-urgent-1",
       "why": "Your COO is waiting on a decision to unblock the Canada queue; she flagged it time-sensitive.",
@@ -17,6 +18,7 @@
       "id": "m-urgent-2",
       "from": "HubSpot Alerts <no-reply@hubspot.com>",
       "subject": "Deal 'Melbourne Airport — 12 booths' past due OPD",
+      "topic": "Melbourne Airport delivery delay",
       "age": "5h",
       "link": "https://mail.google.com/mail/u/0/#all/m-urgent-2",
       "why": "A live deal's estimated delivery date passed with no reschedule — customer may chase.",
@@ -30,6 +32,7 @@
       "link": "https://mail.google.com/mail/u/0/#all/m-starred-1",
       "from": "Courtney Butler <courtney@withbureau.com>",
       "subject": "Customisation spec — Perth split ticket",
+      "topic": "Perth ticket customisation approval",
       "age": "6d",
       "context": "You starred this 6 days ago and haven't replied; Courtney owns the customisation and is waiting.",
       "suggestedReply": "Hey Courtney — sorry for the lag on this. The split looks right; go ahead and raise the Inflow SO for the swap and I'll approve today."
@@ -41,6 +44,7 @@
       "link": "https://mail.google.com/mail/u/0/#all/m-follow-1",
       "from": "Teya (Finance) <teya@withbureau.com>",
       "subject": "Payment reconciliation — 3 tickets marked paid",
+      "topic": "Three paid tickets need approval",
       "age": "1d",
       "suggestedReply": "Thanks Teya — confirming receipt. I'll flip the three tickets to Approved for Scheduling this afternoon."
     },
@@ -49,6 +53,7 @@
       "link": "https://mail.google.com/mail/u/0/#all/m-follow-2",
       "from": "Radaro Support <support@radaro.com>",
       "subject": "Driver report needs a serial number",
+      "topic": "Missing serial number for report",
       "age": "2d",
       "suggestedReply": "Hi — the serial for that install is on the wrap-up photo I forwarded. Re-sending now; let me know if it doesn't come through."
     }

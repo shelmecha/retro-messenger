@@ -2,6 +2,11 @@
 
 All notable changes, newest first. Version shows in the title bar and Settings.
 
+## v0.7.2
+- **Clearer email topics** — preview cards show a short description of what each message is actually about, with the original subject available on hover.
+- **Visible Settings shortcut** — a compact ⚙ button now sits beside Minimize in the title bar.
+- **Faster repeat opens** — likely threads preload in the background and stay cached for ten minutes, including while a fresh inbox scan is running.
+
 ## v0.7.1
 - **Faster thread opening** — email conversations no longer wait for Gemini before displaying; Gmail content is cleaned locally and shown immediately.
 - **Email-style reader** — full-width message rows replace chat bubbles, with older messages collapsed and the newest message expanded by default.

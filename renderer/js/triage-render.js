@@ -58,6 +58,14 @@
     return b;
   }
 
+  function cardTopic(item) {
+    const value = String(item.topic || item.subject || "(no subject)")
+      .replace(/^(?:(?:re|fw|fwd)\s*:\s*)+/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    return value.length > 68 ? value.slice(0, 65).replace(/\s+\S*$/, "") + "…" : value;
+  }
+
   // Collapse the card to a slim "done" line. The item is flagged so bucket
   // counts and the progress bar reflect it (see flows.js).
   function markHandled(card, item, onChange) {
@@ -88,6 +96,7 @@
   // onChange(item, {type: "acted"|"undone"}) — keeps progress/win chip honest.
   function makeCard(bucketKey, item, onChange) {
     const cfg = BUCKETS[bucketKey];
+    const topic = cardTopic(item);
     const card = document.createElement("div");
     card.className = "item-card";
     if (item._handled) card.classList.add("handled");
@@ -100,12 +109,15 @@
       (item.link ? `<button class="card-link" title="Open in Gmail">🔗</button>` : "") +
       `</span>` +
       `<div class="card-badge">${esc(cfg.badge)}</div>` +
-      `<div class="card-subject">${esc(item.subject || "(no subject)")}</div>` +
+      `<div class="card-subject">${esc(topic)}</div>` +
       (item.from ? `<div class="card-from">${esc(item.from)}</div>` : "") +
       (metaVal ? `<div class="card-meta">${esc(metaVal)}</div>` : "") +
       (item.action ? `<div class="card-do"><em>Do:</em> ${esc(item.action)}</div>` : "") +
       `<div class="card-actions"></div>` +
       `<div class="card-result hidden"></div>`;
+
+    const subjectEl = card.querySelector(".card-subject");
+    if (subjectEl && item.subject && item.subject !== topic) subjectEl.title = item.subject;
 
     const linkBtn = card.querySelector(".card-link");
     if (linkBtn) linkBtn.onclick = () => window.retro.action.openExternal(item.link);
@@ -113,7 +125,7 @@
     const readBtn = card.querySelector(".card-read");
     if (readBtn)
       readBtn.onclick = () =>
-        window.retro.reader.open({ id: item.id, subject: item.subject || "", from: item.from || "", link: item.link || "" });
+        window.retro.reader.open({ id: item.id, subject: topic, from: item.from || "", link: item.link || "" });
 
     const actions = card.querySelector(".card-actions");
 
