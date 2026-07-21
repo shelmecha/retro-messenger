@@ -4,6 +4,44 @@ const { ipcMain, shell, app } = require("electron");
 const settings = require("./settings");
 const n8n = require("./n8n-client");
 
+const THREAD_CACHE_TTL = 10 * 60 * 1000;
+const THREAD_CACHE_MAX = 20;
+const threadCache = new Map();
+const threadInFlight = new Map();
+
+function trimThreadCache() {
+  while (threadCache.size > THREAD_CACHE_MAX) {
+    threadCache.delete(threadCache.keys().next().value);
+  }
+}
+
+function getThread(id) {
+  const key = String(id || "").trim();
+  if (!key) return Promise.resolve({ ok: false, code: "BAD_REQUEST", message: "Missing message id." });
+  const cached = threadCache.get(key);
+  if (cached && Date.now() - cached.savedAt < THREAD_CACHE_TTL) return Promise.resolve(cached.result);
+  if (threadInFlight.has(key)) return threadInFlight.get(key);
+
+  const request = n8n.call("thread", "POST", { id: key }).then((result) => {
+    if (result && result.ok) {
+      threadCache.delete(key);
+      threadCache.set(key, { savedAt: Date.now(), result });
+      trimThreadCache();
+    }
+    return result;
+  }).finally(() => threadInFlight.delete(key));
+  threadInFlight.set(key, request);
+  return request;
+}
+
+function preloadThreads(ids) {
+  const unique = [...new Set((ids || []).map((id) => String(id || "").trim()).filter(Boolean))].slice(0, 8);
+  void (async () => {
+    for (const id of unique) await getThread(id);
+  })();
+  return { ok: true, queued: unique.length };
+}
+
 // `deps` carries functions that need the BrowserWindow (nudge, autolaunch).
 function register(deps) {
   // ---- app ------------------------------------------------------------
@@ -32,7 +70,8 @@ function register(deps) {
   ipcMain.handle("action:send", (_e, payload) => n8n.call("send", "POST", payload || {}));
   ipcMain.handle("action:markRead", (_e, ids) => n8n.call("markRead", "POST", { ids: ids || [] }));
   ipcMain.handle("action:markUnread", (_e, ids) => n8n.call("markUnread", "POST", { ids: ids || [] }));
-  ipcMain.handle("thread:get", (_e, id) => n8n.call("thread", "POST", { id: id }));
+  ipcMain.handle("thread:get", (_e, id) => getThread(id));
+  ipcMain.handle("thread:preload", (_e, ids) => preloadThreads(ids));
   ipcMain.handle("action:markAllRead", () => n8n.call("markAllRead", "POST", {}));
   ipcMain.handle("action:unarchive", (_e, ids) => n8n.call("unarchive", "POST", { ids: ids || [] }));
   ipcMain.handle("action:autofilter", (_e, senders) => n8n.call("autofilter", "POST", { senders: senders || [] }));

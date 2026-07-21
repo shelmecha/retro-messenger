@@ -8,6 +8,7 @@
     // Title-bar buttons.
     document.getElementById("btnMin").onclick = () => window.retro.win.minimize();
     document.getElementById("btnClose").onclick = () => window.retro.win.close();
+    document.getElementById("btnSettingsTitle").onclick = () => window.Flows.openSettings();
     document.getElementById("btnSyncNew").onclick = () => window.Flows.syncNew();
     document.getElementById("btnLearnTone").onclick = () => window.Flows.learnTone();
 

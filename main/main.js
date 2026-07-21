@@ -267,10 +267,11 @@ async function runDiagnostics() {
     log("menu chips:", await run("document.querySelectorAll('#chipTray button').length"));
     log("manual-sync button:", await run("!!document.getElementById('btnSyncNew')"));
     log("tone-learning button:", await run("!!document.getElementById('btnLearnTone')"));
+    log("settings beside minimize:", await run("document.getElementById('btnMin').previousElementSibling.id === 'btnSettingsTitle'"));
     log("manual sync response:", await run("window.retro.triage.syncNew().then(r=>r.ok && r.data.addedCount === 1)"));
     log("tone learning response:", await run("window.retro.triage.learnTone().then(r=>r.ok && r.data.done === 50)"));
 
-    await run("Flows.openSettings()");
+    await run("document.getElementById('btnSettingsTitle').click()");
     await new Promise((r) => setTimeout(r, 100));
     await run("document.getElementById('settingsClose').click()");
     log("settings Close returns home:", await run("[...document.querySelectorAll('#chipTray button')].some(b=>/important thing/i.test(b.textContent))"));
@@ -295,10 +296,18 @@ async function runDiagnostics() {
     await new Promise((r) => setTimeout(r, 300));
     log("cards rendered:", await run("document.querySelectorAll('.item-card').length"));
     log("first card has actions:", await run("!!document.querySelector('.item-card .card-actions button')"));
+    log("card shows concise topic:", await run("document.querySelector('.item-card .card-subject').textContent === 'Canada queue escalation decision'"));
+    log("original subject preserved:", await run("document.querySelector('.item-card .card-subject').title.includes('CA service queue')"));
     log("card has gmail link btn:", await run("!!document.querySelector('.item-card .card-link')"));
     log("card has read btn:", await run("!!document.querySelector('.item-card .card-read')"));
     log("thread mock messages:", await run("window.retro.thread.get('mockid').then(r => ((r&&r.data&&r.data.messages)||[]).length)"));
     log("thread mock opens quickly:", await run("(async()=>{const started=performance.now();await window.retro.thread.get('mockid');return performance.now()-started < 500})()"));
+    log("thread preload cache:", await run("(async()=>{await window.retro.thread.preload(['preload-check']);await new Promise(r=>setTimeout(r,150));const started=performance.now();await window.retro.thread.get('preload-check');return performance.now()-started < 50})()"));
+    if (process.env.RM_MAIN_SHOT) {
+      const mainImg = await wc.capturePage();
+      fs.writeFileSync(process.env.RM_MAIN_SHOT, mainImg.toPNG());
+      log("main screenshot saved:", process.env.RM_MAIN_SHOT);
+    }
 
     // Open the reader (second window) on the first card and inspect it.
     await run("document.querySelector('.item-card .card-read').click()");
@@ -314,6 +323,7 @@ async function runDiagnostics() {
       log("reader avatars:", await rRun("document.querySelectorAll('.mail-avatar').length === 2"));
       log("reader previews:", await rRun("document.querySelectorAll('.mail-preview').length === 2"));
       log("reader newest expanded:", await rRun("document.querySelector('.mail-message:last-child').classList.contains('expanded')"));
+      log("reader uses concise topic:", await rRun("document.getElementById('readerSubject').textContent === 'Canada queue escalation decision'"));
       log("reader hides sender emails:", await rRun("![...document.querySelectorAll('.mail-from')].some(e=>e.textContent.includes('@'))"));
       if (process.env.RM_READER_SHOT) {
         const readerImg = await readerWc.capturePage();
