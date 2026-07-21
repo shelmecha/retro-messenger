@@ -11,7 +11,9 @@ This replaces n8n. It runs free inside your own Google account, on Google's serv
 ## 2. Create the script
 1. Go to https://script.google.com → **New project**.
 2. Delete the empty `function myFunction() {}` in the editor.
-3. Open `Code.gs` from this folder, copy **everything**, paste it into the editor.
+3. Open `backend/apps-script/Code.gs` from the Retro Messenger project, copy
+   **everything**, and paste it into the Apps Script editor. There is no
+   `script.go.js` file—the `.gs` extension is Google Apps Script's JavaScript format.
 4. Near the top, replace `PASTE_YOUR_GEMINI_KEY_HERE` with your `AIza...` key. Keep the quotes.
 5. (Optional) change `TIME ZONE` / query windows in `CONFIG` if you like the defaults are fine.
 6. Click **💾 Save** (top).

@@ -8,6 +8,8 @@
     // Title-bar buttons.
     document.getElementById("btnMin").onclick = () => window.retro.win.minimize();
     document.getElementById("btnClose").onclick = () => window.retro.win.close();
+    document.getElementById("btnSyncNew").onclick = () => window.Flows.syncNew();
+    document.getElementById("btnLearnTone").onclick = () => window.Flows.learnTone();
 
     window.SettingsPanel.wire();
 
@@ -30,16 +32,13 @@
     // Restore today's win chip.
     UI.setWinChip(window.Flows.getWins().count);
 
-    // Re-greet when the window is re-shown from the tray, and quietly pull a
-    // newer summary if one arrived while it was away (refresh-on-wake).
+    // Re-greet on wake without replacing the focused board. New mail is added
+    // only through the deliberate header sync button.
     let greetedOnce = false;
     window.retro.onWake(async () => {
       if (!greetedOnce) return;
-      const refreshed = await window.Flows.refreshOnWake();
-      if (!refreshed) {
-        window.ChatUI.addBotMsg("Welcome back! 👋");
-        window.Flows.menu();
-      }
+      window.ChatUI.addBotMsg("Welcome back! 👋 Your board is right where you left it. Tap ↻ when you want new mail.");
+      window.Flows.menu();
     });
 
     // Auto-update: quiet while downloading, then offer a one-click restart.

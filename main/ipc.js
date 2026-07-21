@@ -22,6 +22,8 @@ function register(deps) {
   // ---- triage ---------------------------------------------------------
   ipcMain.handle("triage:run", () => n8n.call("run", "POST", { source: "retro-messenger" }));
   ipcMain.handle("triage:latest", () => n8n.call("latest", "GET"));
+  ipcMain.handle("triage:syncNew", () => n8n.call("syncNew", "POST", {}));
+  ipcMain.handle("triage:learnTone", () => n8n.call("learnTone", "POST", {}));
 
   // ---- per-item actions ----------------------------------------------
   ipcMain.handle("action:unsubscribe", (_e, items) => n8n.call("unsubscribe", "POST", { items: items || [] }));
