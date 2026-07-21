@@ -137,7 +137,7 @@ async function call(pathKey, method = "GET", body) {
       return { ok: true, mock: true, data };
     }
     if (pathKey === "thread") {
-      await wait(500);
+      await wait(80);
       return {
         ok: true,
         mock: true,

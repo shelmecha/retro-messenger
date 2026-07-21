@@ -523,25 +523,26 @@ function mergeBuckets(parsed, items) {
 
 /* ============================ ACTIONS ============================ */
 
-// Full thread content for the in-app reader window (plain text — no remote
-// images, so no tracking pixels load). Bodies capped to keep the payload sane.
+// Fast thread content for the in-app reader. This deliberately avoids Gemini:
+// Gmail returns immediately, no remote images load, and no tracking pixels fire.
 function doThread(body) {
   try {
     const thread = GmailApp.getMessageById(body.id).getThread();
     const identities = myAddresses();
-    const rawMessages = thread.getMessages().map(function (m) {
+    const messages = thread.getMessages().map(function (m) {
+      const cleaned = cleanThreadBody(safeBody(m));
       return {
         senderName: senderName(m.getFrom(), identities),
         date: m.getDate().toISOString(),
-        body: (safeBody(m) || "(no text content — open in Gmail to view)").slice(0, 6000),
+        summary: threadPreview(cleaned),
+        body: (cleaned || "No text content — open in Gmail to view.").slice(0, 6000),
         isMe: isMine(m.getFrom(), identities),
       };
     });
-    const cleaned = geminiConversation(rawMessages);
     return {
       ok: true,
       subject: thread.getFirstMessageSubject() || "(no subject)",
-      messages: cleaned,
+      messages: messages,
       link: "https://mail.google.com/mail/u/0/#all/" + body.id,
     };
   } catch (e) {
@@ -572,28 +573,19 @@ function senderName(from, identities) {
   return local.replace(/\b\w/g, function (c) { return c.toUpperCase(); }) || "Unknown sender";
 }
 
-function geminiConversation(messages) {
-  const prompt = [
-    "Clean this email conversation and return ONLY JSON: {\"messages\":[{\"senderName\":\"\",\"date\":\"\",\"summary\":\"\",\"body\":\"\",\"isMe\":false}]}",
-    "Keep chronological order and copy senderName, date, and isMe exactly.",
-    "For each email, write a factual one-sentence summary and cleaned useful body.",
-    "Remove signatures, job titles, disclaimers, phone numbers, addresses, social links, URLs, tracking text, and repeated quoted history.",
-    "Preserve useful facts and conversation flow. Never invent information.",
-    JSON.stringify(messages),
-  ].join("\n");
-  const parsed = geminiJson(prompt);
-  const cleaned = parsed && Array.isArray(parsed.messages) ? parsed.messages : [];
-  return messages.map(function (message, index) {
-    const tidy = cleaned[index] || {};
-    return Object.assign({}, message, {
-      summary: tidy.summary || "Open the cleaned message for details.",
-      body: tidy.body || cleanQuotedText(message.body),
-    });
-  });
+function cleanThreadBody(text) {
+  return cleanQuotedText(text)
+    .replace(/\u00a0/g, " ")
+    .split(/\n(?:--\s*$|Sent from my\b|Get Outlook for\b)/im)[0]
+    .replace(/^\s*https?:\/\/\S+\s*$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
-function cleanQuoted(text) {
-  return String(text || "").split(/\nOn .+wrote:\s*\n/i)[0].replace(/\n>.*(?:\n|$)/g, "\n").trim();
+function threadPreview(text) {
+  const flat = String(text || "").replace(/\s+/g, " ").trim();
+  if (!flat) return "No message preview.";
+  return flat.length > 180 ? flat.slice(0, 177) + "…" : flat;
 }
 
 // Learn from messages genuinely authored by the active account/aliases. The
