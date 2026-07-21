@@ -14,6 +14,29 @@
     return d.innerHTML;
   }
 
+  function formatMailBody(value) {
+    const source = String(value || "No text content — open in Gmail to view.").replace(/\r\n?/g, "\n");
+    const sections = [];
+
+    source.split("\n").forEach((line) => {
+      const quoted = line.match(/^\s*(?:>\s*)+(.*)$/);
+      const type = quoted ? "quote" : "text";
+      const content = quoted ? quoted[1] : line;
+      const previous = sections[sections.length - 1];
+      if (!previous || previous.type !== type) sections.push({ type, lines: [] });
+      sections[sections.length - 1].lines.push(content);
+    });
+
+    return sections
+      .map((section) => {
+        const content = esc(section.lines.join("\n"));
+        return section.type === "quote"
+          ? `<blockquote class="mail-quote">${content}</blockquote>`
+          : `<div class="mail-body-text">${content}</div>`;
+      })
+      .join("");
+  }
+
   const subjEl = document.getElementById("readerSubject");
   const countEl = document.getElementById("readerCount");
   const threadEl = document.getElementById("threadList");
@@ -60,7 +83,7 @@
         `<span class="mail-chevron" aria-hidden="true">›</span></span></div>` +
         `<div class="mail-preview">${esc(m.summary || preview(m.body))}</div>` +
         `<div class="mail-expanded"><div class="mail-recipient">${m.isMe ? "from me" : "to me"}</div>` +
-        `<div class="mail-body">${esc(m.body || "No text content — open in Gmail to view.")}</div></div></article>`;
+        `<div class="mail-body">${formatMailBody(m.body)}</div></div></article>`;
       const toggle = () => expandMessage(message);
       message.onclick = toggle;
       message.onkeydown = (event) => {

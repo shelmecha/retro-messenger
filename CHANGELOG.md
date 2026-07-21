@@ -2,6 +2,9 @@
 
 All notable changes, newest first. Version shows in the title bar and Settings.
 
+## v0.7.3
+- **Cleaner forwarded emails** — quoted reply lines now appear as a tidy block with a vertical quote bar instead of repeated `>` characters.
+
 ## v0.7.2
 - **Clearer email topics** — preview cards show a short description of what each message is actually about, with the original subject available on hover.
 - **Visible Settings shortcut** — a compact ⚙ button now sits beside Minimize in the title bar.

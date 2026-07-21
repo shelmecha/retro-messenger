@@ -158,7 +158,10 @@ async function call(pathKey, method = "GET", body) {
               senderName: "Shelvi",
               date: "2026-07-20T11:06:00.000Z",
               summary: "Shelvi will chase the supplier and report back that afternoon.",
-              body: "Noted — I'll chase the supplier now and come back to you this afternoon.",
+              body:
+                "Noted — I'll chase the supplier now and come back to you this afternoon.\n\n" +
+                "> Hi Shelvi,\n>\n> Can you confirm the spare-parts order for Compass Education?\n" +
+                "> The client is chasing an ETA today.",
               isMe: true,
             },
           ],
