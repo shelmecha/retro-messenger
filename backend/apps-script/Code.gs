@@ -10,23 +10,27 @@
  * into the app's Settings. Full steps in SETUP-APPSSCRIPT.md.
  */
 
-const BACKEND_VERSION = "0.7.2";
+const BACKEND_VERSION = "0.7.6";
 
 const CONFIG = {
   GEMINI_API_KEY: "PASTE_YOUR_GEMINI_KEY_HERE", // from https://aistudio.google.com/apikey
   // No hardcoded model — the script asks Google which models YOUR key can use
   // and picks the best available, in this order of preference:
   MODEL_PREFERENCES: [
-    "gemini-3.5-flash",
-    "gemini-3-flash-preview",
     "gemini-3.1-flash-lite",
-    "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-2.5-flash",
+    "gemini-3-flash-preview",
   ],
+  MODEL_SELECTION_VERSION: "quota-friendly-v1",
   INBOX_QUERY: "in:inbox newer_than:3d",
   INBOX_LIMIT: 20,
   STARRED_QUERY: "is:starred older_than:5d",
   STARRED_LIMIT: 10,
+  SUMMARY_REUSE_MINUTES: 10,
+  TONE_SAMPLE_LIMIT: 20,
+  TONE_SAMPLE_CHARS: 1200,
   SUBSCRIPTIONS_LABEL: "Subscriptions",
 };
 
@@ -53,7 +57,7 @@ function doGet(e) {
   } catch (err) {
     // Return the error AS JSON so the app can show the real reason instead of
     // an un-parseable HTML crash page.
-    return json({ ok: false, code: "BACKEND_ERROR", error: String((err && err.message) || err) });
+    return json({ ok: false, code: (err && err.code) || "BACKEND_ERROR", error: String((err && err.message) || err) });
   }
 }
 
@@ -65,7 +69,7 @@ function doPost(e) {
   try {
     return json(route(body));
   } catch (err) {
-    return json({ ok: false, code: "BACKEND_ERROR", error: String((err && err.message) || err) });
+    return json({ ok: false, code: (err && err.code) || "BACKEND_ERROR", error: String((err && err.message) || err) });
   }
 }
 
@@ -107,6 +111,34 @@ function json(obj) {
 /* ============================ TRIAGE ============================ */
 
 function runTriage() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(1500)) {
+    const saved = getLatest();
+    if (hasSavedSummary(saved)) {
+      saved.reusedCachedSummary = true;
+      saved.cacheNotice = "Another inbox scan is already running, so I loaded your last saved summary.";
+      return saved;
+    }
+    lock.waitLock(10000);
+  }
+
+  try {
+    return runTriageLocked();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function runTriageLocked() {
+  const saved = getLatest();
+  const ageMinutes = summaryAgeMinutes(saved);
+  if (ageMinutes !== null && ageMinutes < CONFIG.SUMMARY_REUSE_MINUTES) {
+    saved.reusedCachedSummary = true;
+    saved.cacheNotice =
+      "I reused your recent summary to avoid another Gemini request. Tap the refresh icon to check only for new mail.";
+    return saved;
+  }
+
   const syncStarted = new Date();
   const items = gather();
   if (!items.length) {
@@ -118,8 +150,14 @@ function runTriage() {
     PropertiesService.getScriptProperties().setProperty("lastInboxSync", syncStarted.toISOString());
     return empty;
   }
-  const parsed = geminiSummarize(items);
-  const summary = mergeBuckets(parsed, items);
+  let summary;
+  try {
+    const parsed = geminiSummarize(items);
+    summary = mergeBuckets(parsed, items);
+  } catch (err) {
+    Logger.log("Gemini triage fallback: " + String((err && err.message) || err));
+    summary = buildNoAiSummary(items, err);
+  }
   summary.generatedAt = new Date().toISOString();
   summary.unreadCount = countUnread();
   saveLatest(summary);
@@ -152,12 +190,23 @@ function syncNew() {
     props.setProperty("lastInboxSync", syncAt.toISOString());
     return Object.assign({}, EMPTY_SUMMARY, { headline: "No new unread messages — board unchanged.", generatedAt: syncAt.toISOString(), unreadCount: countUnread(), addedCount: 0 });
   }
-  const delta = mergeBuckets(geminiSummarize(additions), additions);
+  let delta;
+  try {
+    delta = mergeBuckets(geminiSummarize(additions), additions);
+  } catch (err) {
+    Logger.log("Gemini new-mail fallback: " + String((err && err.message) || err));
+    delta = buildNoAiSummary(additions, err);
+  }
   bucketKeys().forEach(function (key) {
     latest[key] = (latest[key] || []).concat(delta[key] || []);
   });
   latest.generatedAt = syncAt.toISOString();
   latest.unreadCount = countUnread();
+  if (delta.aiFallback) {
+    latest.aiFallback = true;
+    latest.aiFallbackKind = delta.aiFallbackKind || "temporary";
+    latest.aiNotice = delta.aiNotice;
+  }
   saveLatest(latest);
   props.setProperty("lastInboxSync", syncAt.toISOString());
   delta.generatedAt = latest.generatedAt;
@@ -175,6 +224,58 @@ function bucketKeys() {
 // Cheap unread tally for the "clean sweep" prompt (capped at 100 for speed).
 function countUnread() {
   return GmailApp.search("in:inbox is:unread", 0, 100).length;
+}
+
+function hasSavedSummary(summary) {
+  if (!summary) return false;
+  if (summary.generatedAt) return true;
+  return bucketKeys().some(function (key) { return (summary[key] || []).length > 0; });
+}
+
+function summaryAgeMinutes(summary) {
+  if (!summary || !summary.generatedAt) return null;
+  const time = new Date(summary.generatedAt).getTime();
+  if (!isFinite(time)) return null;
+  return Math.max(0, (Date.now() - time) / 60000);
+}
+
+function buildNoAiSummary(items, err) {
+  const out = Object.assign({}, EMPTY_SUMMARY);
+  bucketKeys().forEach(function (key) { out[key] = []; });
+  const errorText = String((err && err.message) || "");
+  out.aiFallback = true;
+  out.aiFallbackKind =
+    (err && err.quotaKind) || (/invalid|unauthorized|api key/i.test(errorText) ? "configuration" : "temporary");
+  out.aiNotice =
+    out.aiFallbackKind === "daily"
+      ? "Gemini's daily project quota is used up. It resets at midnight Pacific time, so I loaded your emails without AI sorting."
+      : out.aiFallbackKind === "configuration"
+        ? "Your Gemini API key needs attention, but I loaded your emails without AI sorting. Check the key in Code.gs when convenient."
+      : "Gemini is unavailable or limited right now, so I loaded your emails without AI sorting.";
+  out.headline =
+    "I still loaded " + items.length + " email" + (items.length === 1 ? "" : "s") + " so you can keep working.";
+
+  items.forEach(function (orig) {
+    const entry = {
+      id: orig.id,
+      from: orig.from,
+      subject: orig.subject,
+      topic: String(orig.subject || "(no subject)")
+        .replace(/^(?:(?:re|fw|fwd)\s*:\s*)+/i, "")
+        .slice(0, 60),
+      age: orig.age,
+      link: orig.link || "",
+      why: "AI sorting is temporarily unavailable — review this message manually.",
+      action: "Open the email and review it.",
+      reason: "AI sorting is temporarily unavailable.",
+      context: "Starred email loaded without AI sorting.",
+      suggestedReply: "",
+      unsubMethod: orig.unsubMethod || "",
+      unsubTarget: orig.unsubTarget || "",
+    };
+    (orig.starred ? out.starredOverdue : out.whatsNew).push(entry);
+  });
+  return out;
 }
 
 function gather() {
@@ -206,7 +307,7 @@ function toItem(m, starred) {
   const body = safeBody(m);
   const item = {
     id: m.getId(),
-    from: m.getFrom(),
+    from: messageFrom(m),
     subject: m.getSubject() || "(no subject)",
     age: ageStr(m.getDate()),
     snippet: body.slice(0, 300),
@@ -307,17 +408,14 @@ function geminiSummarize(items) {
 
     // Temporary overload/outage — back off and retry a few times so brief
     // demand spikes heal themselves instead of surfacing as an error.
-    if ((code === 503 || code === 500 || code === 429) && transient < 3) {
+    if ((code === 503 || code === 500) && transient < 3) {
       transient++;
       Utilities.sleep(2000 * transient); // 2s, 4s, 6s
       continue;
     }
 
     if (code === 429) {
-      throw new Error(
-        "Gemini is rate-limited right now. Wait about a minute and try again " +
-          "(free tier allows ~10 requests per minute)."
-      );
+      throw geminiQuotaError(res.getContentText());
     }
 
     if (code === 503 || code === 500) {
@@ -326,7 +424,9 @@ function geminiSummarize(items) {
 
     if (code === 404 && model) {
       // Model retired/unavailable for this key — forget it and re-pick.
-      PropertiesService.getScriptProperties().deleteProperty("pickedModel");
+      const props = PropertiesService.getScriptProperties();
+      props.deleteProperty("pickedModel");
+      props.deleteProperty("pickedModelVersion");
       const next = pickModel(model);
       if (next && next !== model) {
         model = next;
@@ -339,6 +439,28 @@ function geminiSummarize(items) {
     );
   }
   throw new Error("Gemini kept failing after several retries — likely temporary. Try again shortly.");
+}
+
+function geminiQuotaError(responseText) {
+  let data = {};
+  try {
+    data = JSON.parse(responseText || "{}");
+  } catch (_) {}
+  const details = (((data || {}).error || {}).details || []);
+  const detailText = JSON.stringify(details);
+  const isDaily = /per.?day|requestsperday|inputtokensperday|rpd/i.test(detailText);
+  const retryInfo = details.find(function (detail) {
+    return detail && (detail.retryDelay || /RetryInfo/i.test(String(detail["@type"] || "")));
+  });
+  const err = new Error(
+    isDaily
+      ? "Gemini's daily project quota is used up. It resets at midnight Pacific time."
+      : "Gemini reached a project rate or token limit. Your emails can still load without AI sorting."
+  );
+  err.code = "GEMINI_QUOTA";
+  err.quotaKind = isDaily ? "daily" : "rate";
+  err.retryDelay = retryInfo && retryInfo.retryDelay ? String(retryInfo.retryDelay) : "";
+  return err;
 }
 
 // Defensive parse of model output (port of the n8n "Normalize" node's tricks).
@@ -368,7 +490,8 @@ function safeParseJson(text) {
 function pickModel(exclude) {
   const props = PropertiesService.getScriptProperties();
   const cached = props.getProperty("pickedModel");
-  if (cached && cached !== exclude) return cached;
+  const cachedVersion = props.getProperty("pickedModelVersion");
+  if (cached && cachedVersion === CONFIG.MODEL_SELECTION_VERSION && cached !== exclude) return cached;
 
   const res = UrlFetchApp.fetch(
     "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=" + CONFIG.GEMINI_API_KEY,
@@ -392,7 +515,10 @@ function pickModel(exclude) {
   if (!chosen) chosen = models[0]; // last resort: anything usable
   if (!chosen) throw new Error("No Gemini model on this key supports generateContent.");
 
-  props.setProperty("pickedModel", chosen);
+  props.setProperties({
+    pickedModel: chosen,
+    pickedModelVersion: CONFIG.MODEL_SELECTION_VERSION,
+  }, false);
   return chosen;
 }
 
@@ -482,7 +608,9 @@ function geminiJson(prompt, maxTokens) {
         .map(function (part) { return part.text || ""; }).join("");
       const parsed = safeParseJson(text);
       if (parsed) return parsed;
-    } else if (code !== 429 && code !== 500 && code !== 503) {
+    } else if (code === 429) {
+      throw geminiQuotaError(res.getContentText());
+    } else if (code !== 500 && code !== 503) {
       throw new Error("Gemini HTTP " + code + ": " + res.getContentText().slice(0, 200));
     }
     Utilities.sleep(1500 * (attempt + 1));
@@ -496,6 +624,7 @@ function mergeBuckets(parsed, items) {
   items.forEach((i) => (byId[i.id] = i));
   const out = Object.assign({}, EMPTY_SUMMARY);
   out.headline = parsed.headline || "";
+  const placed = {};
 
   Object.keys(EMPTY_SUMMARY).forEach((key) => {
     if (key === "headline" || key === "generatedAt" || key === "unreadCount") return;
@@ -503,7 +632,8 @@ function mergeBuckets(parsed, items) {
     out[key] = arr
       .map((g) => {
         const orig = byId[g.id];
-        if (!orig) return null;
+        if (!orig || placed[orig.id]) return null;
+        placed[orig.id] = true;
         return {
           id: orig.id,
           from: orig.from,
@@ -522,6 +652,30 @@ function mergeBuckets(parsed, items) {
       })
       .filter(Boolean);
   });
+
+  // A syntactically valid AI response can still omit or duplicate an id. Never
+  // let that make a real Gmail message disappear from the board.
+  items.forEach(function (orig) {
+    if (placed[orig.id]) return;
+    const entry = {
+      id: orig.id,
+      from: orig.from,
+      subject: orig.subject,
+      topic: String(orig.subject || "(no subject)")
+        .replace(/^(?:(?:re|fw|fwd)\s*:\s*)+/i, "")
+        .slice(0, 60),
+      age: orig.age,
+      link: orig.link || "",
+      why: "AI did not classify this message, so it was kept for manual review.",
+      action: "Open the email and review it.",
+      reason: "Kept because the AI response omitted it.",
+      context: "Starred message kept for manual review.",
+      suggestedReply: "",
+      unsubMethod: orig.unsubMethod || "",
+      unsubTarget: orig.unsubTarget || "",
+    };
+    (orig.starred ? out.starredOverdue : out.whatsNew).push(entry);
+  });
   return out;
 }
 
@@ -535,12 +689,14 @@ function doThread(body) {
     const identities = myAddresses();
     const messages = thread.getMessages().map(function (m) {
       const cleaned = cleanThreadBody(safeBody(m));
+      const from = messageFrom(m);
       return {
-        senderName: senderName(m.getFrom(), identities),
+        senderName: senderName(from, identities),
+        from: from,
         date: m.getDate().toISOString(),
         summary: threadPreview(cleaned),
         body: (cleaned || "No text content — open in Gmail to view.").slice(0, 6000),
-        isMe: isMine(m.getFrom(), identities),
+        isMe: isMine(from, identities),
       };
     });
     return {
@@ -555,8 +711,30 @@ function doThread(body) {
 }
 
 function myAddresses() {
-  const all = [Session.getActiveUser().getEmail()].concat(GmailApp.getAliases() || []);
-  return all.map(function (value) { return String(value || "").toLowerCase(); }).filter(Boolean);
+  const all = [];
+  try { all.push(Session.getActiveUser().getEmail()); } catch (_) {}
+  try { all.push(Session.getEffectiveUser().getEmail()); } catch (_) {}
+  try { Array.prototype.push.apply(all, GmailApp.getAliases() || []); } catch (_) {}
+  return all
+    .map(function (value) { return addressOnly(value); })
+    .filter(function (value, index, values) { return value && values.indexOf(value) === index; });
+}
+
+function messageFrom(message) {
+  const readers = [
+    function () { return message.getFrom(); },
+    function () { return message.getHeader("From"); },
+    function () { return message.getReplyTo(); },
+    function () { return message.getHeader("Reply-To"); },
+    function () { return message.getHeader("Return-Path"); },
+  ];
+  for (let i = 0; i < readers.length; i++) {
+    try {
+      const value = String(readers[i]() || "").trim();
+      if (value) return value;
+    } catch (_) {}
+  }
+  return "";
 }
 
 function addressOnly(value) {
@@ -570,20 +748,59 @@ function isMine(from, identities) {
 
 function senderName(from, identities) {
   if (isMine(from, identities)) return "Shelvi";
-  const text = String(from || "");
-  const name = text.replace(/<[^>]+>/g, "").replace(/^['\"]|['\"]$/g, "").trim();
+  const text = decodeHeaderWords(String(from || ""));
+  const name = text.replace(/<[^>]+>/g, "").replace(/^[\s'\"]+|[\s'\"]+$/g, "").trim();
   if (name && name.indexOf("@") === -1) return name;
   const local = addressOnly(text).split("@")[0].replace(/[._-]+/g, " ");
   return local.replace(/\b\w/g, function (c) { return c.toUpperCase(); }) || "Unknown sender";
 }
 
+function decodeHeaderWords(value) {
+  return String(value || "").replace(/=\?([^?]+)\?([bq])\?([^?]+)\?=/gi, function (_, charset, encoding, encoded) {
+    try {
+      if (String(encoding).toLowerCase() === "b") {
+        return Utilities.newBlob(Utilities.base64Decode(encoded)).getDataAsString(charset || "UTF-8");
+      }
+      const bytes = [];
+      const text = encoded.replace(/_/g, " ").replace(/=([0-9a-f]{2})/gi, function (match, hex) {
+        bytes.push(parseInt(hex, 16));
+        return "\u0000";
+      });
+      let byteIndex = 0;
+      const rebuilt = [];
+      for (let i = 0; i < text.length; i++) {
+        rebuilt.push(text.charAt(i) === "\u0000" ? bytes[byteIndex++] : text.charCodeAt(i));
+      }
+      return Utilities.newBlob(rebuilt).getDataAsString(charset || "UTF-8");
+    } catch (_) {
+      return encoded;
+    }
+  });
+}
+
+function isForwardedMarker(line) {
+  const marker = String(line || "").replace(/^\s*(?:>\s*)+/, "").trim();
+  return /^-{2,}\s*(?:forwarded message|original message)\s*-{2,}$/i.test(marker) ||
+    /^begin forwarded message:$/i.test(marker);
+}
+
 function cleanThreadBody(text) {
-  return cleanQuotedText(text)
-    .replace(/\u00a0/g, " ")
-    .split(/\n(?:--\s*$|Sent from my\b|Get Outlook for\b)/im)[0]
-    .replace(/^\s*https?:\/\/\S+\s*$/gm, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  const normalized = String(text || "").replace(/\r\n?/g, "\n").replace(/\u00a0/g, " ");
+  const lines = normalized.split("\n");
+  const hasForwardedMessage = lines.some(isForwardedMarker);
+  let kept = lines;
+
+  // Gmail already returns every normal reply as a separate message. Remove the
+  // duplicated quoted history only when this message is not explicitly forwarding
+  // another email; forwarded headers, quoted lines and URLs are useful content.
+  if (!hasForwardedMessage) {
+    const replyHistoryAt = lines.findIndex(function (line) {
+      return /^\s*(?:>\s*)*On .+ wrote:\s*$/i.test(line);
+    });
+    if (replyHistoryAt >= 0) kept = lines.slice(0, replyHistoryAt);
+  }
+
+  return kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function threadPreview(text) {
@@ -597,21 +814,21 @@ function threadPreview(text) {
 function learnTone() {
   const identities = myAddresses();
   const samples = [];
-  GmailApp.search("in:sent newer_than:180d", 0, 50).some(function (thread) {
+  GmailApp.search("in:sent newer_than:180d", 0, 30).some(function (thread) {
     thread.getMessages().forEach(function (message) {
-      if (samples.length < 50 && isMine(message.getFrom(), identities)) {
-        const cleaned = cleanQuotedText(safeBody(message)).slice(0, 2500);
+      if (samples.length < CONFIG.TONE_SAMPLE_LIMIT && isMine(messageFrom(message), identities)) {
+        const cleaned = cleanQuotedText(safeBody(message)).slice(0, CONFIG.TONE_SAMPLE_CHARS);
         if (cleaned) samples.push(cleaned);
       }
     });
-    return samples.length >= 50;
+    return samples.length >= CONFIG.TONE_SAMPLE_LIMIT;
   });
   if (!samples.length) return { ok: false, error: "No recent sent messages were found." };
   const parsed = geminiJson([
     "Return ONLY JSON: {\"profile\":\"a compact writing-style profile under 700 characters\"}.",
     "Describe greeting, tone, sentence length, directness, sign-off, punctuation, and emoji habits. Do not quote or retain private facts.",
     JSON.stringify(samples),
-  ].join("\n"));
+  ].join("\n"), 2048);
   if (!parsed || !parsed.profile) throw new Error("Gemini did not return a writing-style profile.");
   PropertiesService.getScriptProperties().setProperty("toneProfile", String(parsed.profile).slice(0, 700));
   return { ok: true, done: samples.length, message: "Writing style updated from " + samples.length + " sent messages." };
@@ -753,9 +970,12 @@ function saveLatest(summary) {
   const s = JSON.stringify(summary);
   const CHUNK = 8000;
   const n = Math.ceil(s.length / CHUNK);
+  const props = PropertiesService.getScriptProperties();
+  const previousN = parseInt(props.getProperty("latest_n") || "0", 10);
   const map = { latest_n: String(n) };
   for (let i = 0; i < n; i++) map["latest_" + i] = s.substr(i * CHUNK, CHUNK);
-  PropertiesService.getScriptProperties().setProperties(map, false);
+  props.setProperties(map, false);
+  for (let i = n; i < previousN; i++) props.deleteProperty("latest_" + i);
 }
 
 function getLatest() {
@@ -777,9 +997,16 @@ function getLatest() {
 
 /* ======================= OPTIONAL: MORNING RUN ======================= */
 // Run once manually to install a weekday 8am auto-refresh (optional).
+function runWeekdayMorningTriage() {
+  const day = new Date().getDay();
+  if (day !== 0 && day !== 6) runTriage();
+}
+
 function installMorningTrigger() {
   ScriptApp.getProjectTriggers().forEach((t) => {
-    if (t.getHandlerFunction() === "runTriage") ScriptApp.deleteTrigger(t);
+    if (["runTriage", "runWeekdayMorningTriage"].indexOf(t.getHandlerFunction()) !== -1) {
+      ScriptApp.deleteTrigger(t);
+    }
   });
-  ScriptApp.newTrigger("runTriage").timeBased().atHour(8).everyDays(1).create();
+  ScriptApp.newTrigger("runWeekdayMorningTriage").timeBased().atHour(8).everyDays(1).create();
 }

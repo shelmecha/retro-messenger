@@ -7,6 +7,7 @@
 
   let summary = null;
   let sessionActed = 0;
+  let triageInFlight = false;
 
   // ---- daily win tracking (localStorage) --------------------------------
   function todayStr() {
@@ -159,14 +160,29 @@
     menu();
   }
 
+  function setScanControlsDisabled(disabled) {
+    ["btnSyncNew", "btnLearnTone"].forEach((id) => {
+      const button = document.getElementById(id);
+      if (button) button.disabled = disabled;
+    });
+  }
+
   async function syncNew() {
-    const button = document.getElementById("btnSyncNew");
-    button.disabled = true;
+    if (triageInFlight) return;
+    triageInFlight = true;
+    setScanControlsDisabled(true);
     UI.setBuddyStatus("Checking for new mail…");
     UI.addBotMsg("Checking only for new unread mail — your current board will stay put. ↻");
-    const r = await window.retro.triage.syncNew();
-    button.disabled = false;
-    UI.setBuddyStatus("Online — ready to help");
+    let r;
+    try {
+      r = await window.retro.triage.syncNew();
+    } catch (error) {
+      r = { ok: false, message: String((error && error.message) || error) };
+    } finally {
+      triageInFlight = false;
+      setScanControlsDisabled(false);
+      UI.setBuddyStatus("Online — ready to help");
+    }
     if (!r || !r.ok || !r.data) return showError(r, false);
     const incoming = r.data;
     const added = Number(incoming.addedCount || 0);
@@ -194,13 +210,21 @@
   }
 
   async function learnTone() {
-    const button = document.getElementById("btnLearnTone");
-    button.disabled = true;
+    if (triageInFlight) return;
+    triageInFlight = true;
+    setScanControlsDisabled(true);
     UI.setBuddyStatus("Learning your writing style…");
     UI.addBotMsg("Reviewing your recent sent mail. I keep only the style profile — never the email samples. ✍️");
-    const r = await window.retro.triage.learnTone();
-    button.disabled = false;
-    UI.setBuddyStatus("Online — ready to help");
+    let r;
+    try {
+      r = await window.retro.triage.learnTone();
+    } catch (error) {
+      r = { ok: false, message: String((error && error.message) || error) };
+    } finally {
+      triageInFlight = false;
+      setScanControlsDisabled(false);
+      UI.setBuddyStatus("Online — ready to help");
+    }
     if (r && r.ok) {
       const data = r.data || {};
       UI.addBotMsg(data.message || "Your writing style is updated for future suggested replies. ✓");
@@ -227,7 +251,24 @@
     if (ids.length) void window.retro.thread.preload(ids);
   }
 
+  function hasSavedSummary(data) {
+    if (!data || typeof data !== "object") return false;
+    if (data.generatedAt) return true;
+    return T.ORDER.some((key) => Array.isArray(data[key]) && data[key].length > 0);
+  }
+
+  function isGeminiLimit(r) {
+    return !!r && (
+      r.code === "GEMINI_QUOTA" ||
+      /gemini.*(?:rate|quota|limit)|(?:rate|quota|limit).*gemini/i.test(String(r.message || ""))
+    );
+  }
+
   async function runTriage(fresh) {
+    if (triageInFlight) return;
+    triageInFlight = true;
+    setScanControlsDisabled(true);
+    UI.setChips([]);
     UI.setBuddyStatus("Reading your inbox…");
     UI.showTyping();
     UI.addBotMsg(fresh ? "On it — reading your inbox. This can take ~30 seconds. ⏳" : "Pulling up your last summary…");
@@ -235,19 +276,43 @@
 
     // While Gemini prepares a fresh board, warm the thread cache from the
     // previous board so likely Read actions can open immediately.
+    let previousPromise = null;
     if (fresh) {
-      void window.retro.triage.latest().then((previous) => {
+      previousPromise = window.retro.triage.latest();
+      void previousPromise.then((previous) => {
         if (previous && previous.ok) preloadSummaryThreads(previous.data);
       });
     }
-    const r = fresh ? await window.retro.triage.run() : await window.retro.triage.latest();
-    UI.hideTyping();
-    UI.setBuddyStatus("Online — ready to help");
+
+    let r;
+    try {
+      r = fresh ? await window.retro.triage.run() : await window.retro.triage.latest();
+      // Compatibility safety for an older Apps Script deployment: if it still
+      // surfaces a Gemini limit, show the saved board instead of leaving the UI empty.
+      if (fresh && (!r || !r.ok) && isGeminiLimit(r) && previousPromise) {
+        const previous = await previousPromise;
+        if (previous && previous.ok && hasSavedSummary(previous.data)) {
+          r = Object.assign({}, previous, { usedSavedAfterLimit: true });
+        }
+      }
+    } finally {
+      triageInFlight = false;
+      setScanControlsDisabled(false);
+      UI.hideTyping();
+      UI.setBuddyStatus("Online — ready to help");
+    }
 
     if (!r || !r.ok) return showError(r, fresh);
 
     UI.setStatusDot(r.mock ? "demo" : "live");
     summary = r.data || {};
+    if (r.usedSavedAfterLimit) {
+      UI.addBotMsg("Gemini reached its limit, so I'm showing your last saved summary instead.");
+    } else if (summary.aiNotice) {
+      UI.addBotMsg(summary.aiNotice);
+    } else if (summary.cacheNotice) {
+      UI.addBotMsg(summary.cacheNotice);
+    }
     sessionActed = 0;
     celebrated = false;
     applyPersistence();
@@ -363,6 +428,8 @@
         "Your backend answered, but not with a real summary — usually that means the script crashed, " +
         "or the live deployment is an older version. In Apps Script: check the Execution log, then " +
         "Deploy → Manage deployments → ✏️ → New version → Deploy.";
+    } else if (isGeminiLimit(r)) {
+      msg = (r && r.message) || "Gemini reached a project quota. Your saved summary is still available.";
     } else if (code === "BACKEND_ERROR") {
       msg = (r && r.message) || "The backend hit an error. It's often temporary (Gemini busy) — try again in a minute.";
     } else if (code.startsWith("HTTP_")) {
@@ -371,10 +438,17 @@
       msg = "I couldn't reach your backend. Check the URL in Settings and that it's running.";
     }
     UI.addBotMsg(msg);
-    UI.setChips([
-      { label: "🔁 Retry", onClick: () => runTriage(wasFresh) },
-      { label: "🎭 Use demo mode", echo: "Use demo mode", onClick: enableDemoAndRetry },
-    ]);
+    UI.setChips(
+      isGeminiLimit(r)
+        ? [
+            { label: "Show last summary", onClick: () => runTriage(false) },
+            { label: "🔁 Retry later", onClick: () => runTriage(wasFresh) },
+          ]
+        : [
+            { label: "🔁 Retry", onClick: () => runTriage(wasFresh) },
+            { label: "🎭 Use demo mode", echo: "Use demo mode", onClick: enableDemoAndRetry },
+          ]
+    );
   }
 
   async function enableDemoAndRetry() {

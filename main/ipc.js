@@ -8,6 +8,25 @@ const THREAD_CACHE_TTL = 10 * 60 * 1000;
 const THREAD_CACHE_MAX = 20;
 const threadCache = new Map();
 const threadInFlight = new Map();
+let triageInFlight = null;
+
+function runMailboxOperation(action, payload) {
+  if (triageInFlight) {
+    if (triageInFlight.action === action) return triageInFlight.promise;
+    return Promise.resolve({
+      ok: false,
+      code: "BUSY",
+      message: "Another inbox operation is already running. Please wait for it to finish.",
+    });
+  }
+
+  const operation = { action, promise: null };
+  operation.promise = n8n.call(action, "POST", payload || {}).finally(() => {
+    if (triageInFlight === operation) triageInFlight = null;
+  });
+  triageInFlight = operation;
+  return operation.promise;
+}
 
 function trimThreadCache() {
   while (threadCache.size > THREAD_CACHE_MAX) {
@@ -58,10 +77,10 @@ function register(deps) {
   });
 
   // ---- triage ---------------------------------------------------------
-  ipcMain.handle("triage:run", () => n8n.call("run", "POST", { source: "retro-messenger" }));
+  ipcMain.handle("triage:run", () => runMailboxOperation("run", { source: "retro-messenger" }));
   ipcMain.handle("triage:latest", () => n8n.call("latest", "GET"));
-  ipcMain.handle("triage:syncNew", () => n8n.call("syncNew", "POST", {}));
-  ipcMain.handle("triage:learnTone", () => n8n.call("learnTone", "POST", {}));
+  ipcMain.handle("triage:syncNew", () => runMailboxOperation("syncNew", {}));
+  ipcMain.handle("triage:learnTone", () => runMailboxOperation("learnTone", {}));
 
   // ---- per-item actions ----------------------------------------------
   ipcMain.handle("action:unsubscribe", (_e, items) => n8n.call("unsubscribe", "POST", { items: items || [] }));

@@ -130,7 +130,17 @@ async function call(pathKey, method = "GET", body) {
   const cfg = settings.get();
 
   // ---- Demo mode ------------------------------------------------------
-  if (cfg.mockMode) {
+  // Diagnostics must be deterministic and must never consume the user's live
+  // Gmail/Gemini quota just because their saved Settings are in live mode.
+  if (cfg.mockMode || process.env.RM_DIAG === "1") {
+    if (pathKey === "run" && process.env.RM_QUOTA_MOCK === "1") {
+      await wait(200);
+      return {
+        ok: false,
+        code: "GEMINI_QUOTA",
+        message: "Gemini's daily project quota is used up.",
+      };
+    }
     if (pathKey === "run" || pathKey === "latest") {
       await wait(pathKey === "run" ? 1200 : 700);
       const data = loadMock();
@@ -146,7 +156,8 @@ async function call(pathKey, method = "GET", body) {
           link: "https://mail.google.com/",
           messages: [
             {
-              senderName: "Courtney Butler",
+              senderName: "",
+              from: '"Courtney Butler" <courtney@example.com>',
               date: "2026-07-20T10:42:00.000Z",
               summary: "Courtney needs confirmation of the Compass Education spare-parts order and an ETA today.",
               body:
@@ -185,7 +196,7 @@ async function call(pathKey, method = "GET", body) {
     }
     if (pathKey === "learnTone") {
       await wait(700);
-      return { ok: true, mock: true, data: { ok: true, done: 50, message: "Writing style updated from 50 sent messages." } };
+      return { ok: true, mock: true, data: { ok: true, done: 20, message: "Writing style updated from 20 sent messages." } };
     }
     await wait(400);
     return { ok: true, mock: true, data: { done: (body && body.items && body.items.length) || 1 } };

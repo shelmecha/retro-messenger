@@ -88,6 +88,9 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // Each diagnostic launch gets an in-memory session so saved user progress
+      // cannot change test ordering or be erased by the test.
+      partition: process.env.RM_DIAG === "1" ? "retro-diag-" + process.pid : undefined,
       preload: path.join(__dirname, "..", "preload", "preload.js"),
     },
   });
@@ -261,6 +264,9 @@ async function runDiagnostics() {
   };
   try {
     await new Promise((r) => setTimeout(r, 500));
+    // Keep repeated diagnostics isolated from a previous run's handled/moved
+    // card state. This affects tests only; normal users retain their progress.
+    await run("localStorage.clear(); true");
     log("retro API present:", await run("typeof window.retro === 'object'"));
     log("modules:", await run("[typeof ChatUI, typeof Triage, typeof Flows, typeof SettingsPanel].join(',')"));
     log("greeting bubbles:", await run("document.querySelectorAll('#messageList .msg-row.bot .bubble').length"));
@@ -270,7 +276,7 @@ async function runDiagnostics() {
     log("settings beside minimize:", await run("document.getElementById('btnMin').previousElementSibling.id === 'btnSettingsTitle'"));
     log("no bottom settings chip:", await run("![...document.querySelectorAll('#chipTray button')].some(b=>/settings/i.test(b.textContent))"));
     log("manual sync response:", await run("window.retro.triage.syncNew().then(r=>r.ok && r.data.addedCount === 1)"));
-    log("tone learning response:", await run("window.retro.triage.learnTone().then(r=>r.ok && r.data.done === 50)"));
+    log("tone learning response:", await run("window.retro.triage.learnTone().then(r=>r.ok && r.data.done === 20)"));
 
     await run("document.getElementById('btnSettingsTitle').click()");
     await new Promise((r) => setTimeout(r, 100));
@@ -287,8 +293,12 @@ async function runDiagnostics() {
     log("settings Save returns home:", await run("[...document.querySelectorAll('#chipTray button')].some(b=>/important thing/i.test(b.textContent))"));
 
     // Click the first chip ("What's the most important thing...") → triage run.
-    await run("document.querySelector('#chipTray button').click()");
+    await run("(()=>{const triageButton=document.querySelector('#chipTray button');triageButton.click();triageButton.click()})()");
     await new Promise((r) => setTimeout(r, 2000)); // mock run has ~1.2s delay
+    log("duplicate inbox scan suppressed:", await run("[...document.querySelectorAll('.msg-row.bot .bubble')].filter(b=>/reading your inbox/i.test(b.textContent)).length === 1"));
+    if (process.env.RM_QUOTA_MOCK === "1") {
+      log("quota shows saved summary:", await run("[...document.querySelectorAll('.msg-row.bot .bubble')].some(b=>/showing your last saved summary/i.test(b.textContent))"));
+    }
     log("after-run chips (buckets+done):", await run("document.querySelectorAll('#chipTray button').length"));
     log("headline present:", await run("[...document.querySelectorAll('.msg-row.bot .bubble')].some(b=>b.textContent.includes('need you today'))"));
 
@@ -320,6 +330,8 @@ async function runDiagnostics() {
       const rRun = (js) => readerWc.executeJavaScript(js, true);
       log("reader window opened:", true);
       log("reader messages rendered:", await rRun("document.querySelectorAll('.mail-message').length === 2"));
+      log("reader recovers sender from raw From:", await rRun("document.querySelector('.mail-message:first-child .mail-from').textContent === 'Courtney Butler'"));
+      log("reader has no unknown senders:", await rRun("![...document.querySelectorAll('.mail-from')].some(e=>/unknown sender/i.test(e.textContent))"));
       log("reader matches main size:", await rRun("window.innerWidth === 420 && window.innerHeight === 600"));
       log("reader avatars:", await rRun("document.querySelectorAll('.mail-avatar').length === 2"));
       log("reader previews:", await rRun("document.querySelectorAll('.mail-preview').length === 2"));
