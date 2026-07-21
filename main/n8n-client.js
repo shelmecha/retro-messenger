@@ -160,6 +160,10 @@ async function call(pathKey, method = "GET", body) {
               summary: "Shelvi will chase the supplier and report back that afternoon.",
               body:
                 "Noted — I'll chase the supplier now and come back to you this afternoon.\n\n" +
+                "---------- Forwarded message ---------\n" +
+                "From: Courtney Butler <courtney@example.com>\n" +
+                "Date: Mon, Jul 20, 2026 at 10:42 AM\n" +
+                "Subject: Spare Parts / After-Sale Request\n\n" +
                 "> Hi Shelvi,\n>\n> Can you confirm the spare-parts order for Compass Education?\n" +
                 "> The client is chasing an ETA today.",
               isMe: true,
