@@ -213,7 +213,6 @@
     UI.setChips([
       { label: "What's the most important thing in my email? 📬", onClick: () => runTriage(true) },
       { label: "Show last summary", onClick: () => runTriage(false) },
-      { label: "⚙️ Settings", echo: "Open settings", onClick: openSettings },
     ]);
   }
 
@@ -375,7 +374,6 @@
     UI.setChips([
       { label: "🔁 Retry", onClick: () => runTriage(wasFresh) },
       { label: "🎭 Use demo mode", echo: "Use demo mode", onClick: enableDemoAndRetry },
-      { label: "⚙️ Settings", echo: "Open settings", onClick: openSettings },
     ]);
   }
 
