@@ -264,10 +264,11 @@ async function runDiagnostics() {
     log("retro API present:", await run("typeof window.retro === 'object'"));
     log("modules:", await run("[typeof ChatUI, typeof Triage, typeof Flows, typeof SettingsPanel].join(',')"));
     log("greeting bubbles:", await run("document.querySelectorAll('#messageList .msg-row.bot .bubble').length"));
-    log("menu chips:", await run("document.querySelectorAll('#chipTray button').length"));
+    log("menu chips:", await run("document.querySelectorAll('#chipTray button').length === 2"));
     log("manual-sync button:", await run("!!document.getElementById('btnSyncNew')"));
     log("tone-learning button:", await run("!!document.getElementById('btnLearnTone')"));
     log("settings beside minimize:", await run("document.getElementById('btnMin').previousElementSibling.id === 'btnSettingsTitle'"));
+    log("no bottom settings chip:", await run("![...document.querySelectorAll('#chipTray button')].some(b=>/settings/i.test(b.textContent))"));
     log("manual sync response:", await run("window.retro.triage.syncNew().then(r=>r.ok && r.data.addedCount === 1)"));
     log("tone learning response:", await run("window.retro.triage.learnTone().then(r=>r.ok && r.data.done === 50)"));
 

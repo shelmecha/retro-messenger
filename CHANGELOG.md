@@ -2,6 +2,9 @@
 
 All notable changes, newest first. Version shows in the title bar and Settings.
 
+## v0.7.4
+- **One Settings button** — removed the redundant Settings chip from the bottom menu and connection-error actions; use the title-bar gear instead.
+
 ## v0.7.3
 - **Cleaner forwarded emails** — quoted reply lines now appear as a tidy block with a vertical quote bar instead of repeated `>` characters.
 
