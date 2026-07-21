@@ -14,6 +14,7 @@
   }
 
   const subjEl = document.getElementById("readerSubject");
+  const countEl = document.getElementById("readerCount");
   const threadEl = document.getElementById("threadList");
   const replyArea = document.getElementById("replyArea");
 
@@ -26,7 +27,9 @@
   loadThread();
 
   async function loadThread() {
-    threadEl.innerHTML = '<div class="reader-loading">Opening the conversation…</div>';
+    threadEl.innerHTML =
+      '<div class="reader-loading"><span class="reader-spinner" aria-hidden="true"></span>' +
+      "Loading messages…</div>";
     const r = await window.retro.thread.get(id);
     if (!r || !r.ok || !r.data) {
       threadEl.innerHTML =
@@ -37,23 +40,51 @@
     }
     const data = r.data;
     if (data.subject) subjEl.textContent = data.subject;
+    const messages = data.messages || [];
+    countEl.textContent = messages.length + " message" + (messages.length === 1 ? "" : "s");
     threadEl.innerHTML = "";
-    (data.messages || []).forEach((m, index) => {
-      const row = document.createElement("div");
-      row.className = "thread-row" + (m.isMe ? " mine" : "");
-      row.style.setProperty("--stagger", `${index * 55}ms`);
+    messages.forEach((m, index) => {
+      const message = document.createElement("div");
+      message.className = "mail-message" + (m.isMe ? " mine" : "") + (index === messages.length - 1 ? " expanded" : "");
+      message.tabIndex = 0;
+      message.setAttribute("role", "button");
+      message.setAttribute("aria-expanded", index === messages.length - 1 ? "true" : "false");
+      message.style.setProperty("--stagger", `${Math.min(index * 35, 210)}ms`);
       const name = String(m.senderName || "Unknown sender").trim();
       const initials = name.split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase() || "?";
-      row.innerHTML =
-        `<div class="thread-avatar" aria-hidden="true">${esc(initials)}</div>` +
-        `<article class="thread-msg"><div class="thread-head"><span class="thread-from">${esc(name)}</span>` +
-        `<time class="thread-date">${esc(friendlyDate(m.date))}</time></div>` +
-        `<div class="thread-summary">${esc(m.summary || "No summary available.")}</div>` +
-        `<details class="thread-details"><summary>Show cleaned message</summary>` +
-        `<div class="thread-body">${esc(m.body)}</div></details></article>`;
-      threadEl.appendChild(row);
+      message.innerHTML =
+        `<div class="mail-avatar" aria-hidden="true">${esc(initials)}</div>` +
+        `<article class="mail-content"><div class="mail-head"><span class="mail-from">${esc(name)}</span>` +
+        `<span class="mail-head-end"><time class="mail-date">${esc(friendlyDate(m.date))}</time>` +
+        `<span class="mail-chevron" aria-hidden="true">›</span></span></div>` +
+        `<div class="mail-preview">${esc(m.summary || preview(m.body))}</div>` +
+        `<div class="mail-expanded"><div class="mail-recipient">${m.isMe ? "from me" : "to me"}</div>` +
+        `<div class="mail-body">${esc(m.body || "No text content — open in Gmail to view.")}</div></div></article>`;
+      const toggle = () => expandMessage(message);
+      message.onclick = toggle;
+      message.onkeydown = (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          toggle();
+        }
+      };
+      threadEl.appendChild(message);
     });
-    threadEl.scrollTop = 0;
+    const newest = threadEl.lastElementChild;
+    if (newest) newest.scrollIntoView({ block: "nearest" });
+  }
+
+  function expandMessage(selected) {
+    threadEl.querySelectorAll(".mail-message").forEach((message) => {
+      const expanded = message === selected;
+      message.classList.toggle("expanded", expanded);
+      message.setAttribute("aria-expanded", expanded ? "true" : "false");
+    });
+  }
+
+  function preview(value) {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    return text.length > 160 ? text.slice(0, 157) + "…" : text || "No message preview.";
   }
 
   function friendlyDate(value) {

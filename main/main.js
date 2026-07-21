@@ -130,6 +130,7 @@ function openReader(payload) {
   const query = "?" + new URLSearchParams(payload || {}).toString();
 
   if (readerWin && !readerWin.isDestroyed()) {
+    readerWin.setSize(420, 600);
     readerWin.loadFile(path.join(__dirname, "..", "renderer", "reader.html"), { search: query });
     positionReaderBesideMain();
     readerWin.show();
@@ -138,9 +139,9 @@ function openReader(payload) {
   }
 
   readerWin = new BrowserWindow({
-    width: 560,
-    height: 680,
-    resizable: true,
+    width: 420,
+    height: 600,
+    resizable: false,
     maximizable: false,
     fullscreenable: false,
     show: false,
@@ -297,6 +298,7 @@ async function runDiagnostics() {
     log("card has gmail link btn:", await run("!!document.querySelector('.item-card .card-link')"));
     log("card has read btn:", await run("!!document.querySelector('.item-card .card-read')"));
     log("thread mock messages:", await run("window.retro.thread.get('mockid').then(r => ((r&&r.data&&r.data.messages)||[]).length)"));
+    log("thread mock opens quickly:", await run("(async()=>{const started=performance.now();await window.retro.thread.get('mockid');return performance.now()-started < 500})()"));
 
     // Open the reader (second window) on the first card and inspect it.
     await run("document.querySelector('.item-card .card-read').click()");
@@ -307,16 +309,19 @@ async function runDiagnostics() {
     if (readerWc) {
       const rRun = (js) => readerWc.executeJavaScript(js, true);
       log("reader window opened:", true);
-      log("reader thread msgs rendered:", await rRun("document.querySelectorAll('.thread-msg').length"));
-      log("reader cards:", await rRun("document.querySelectorAll('.thread-row').length === 2"));
-      log("reader avatars:", await rRun("document.querySelectorAll('.thread-avatar').length === 2"));
-      log("reader summaries:", await rRun("document.querySelectorAll('.thread-summary').length === 2"));
-      log("reader hides sender emails:", await rRun("![...document.querySelectorAll('.thread-from')].some(e=>e.textContent.includes('@'))"));
+      log("reader messages rendered:", await rRun("document.querySelectorAll('.mail-message').length === 2"));
+      log("reader matches main size:", await rRun("window.innerWidth === 420 && window.innerHeight === 600"));
+      log("reader avatars:", await rRun("document.querySelectorAll('.mail-avatar').length === 2"));
+      log("reader previews:", await rRun("document.querySelectorAll('.mail-preview').length === 2"));
+      log("reader newest expanded:", await rRun("document.querySelector('.mail-message:last-child').classList.contains('expanded')"));
+      log("reader hides sender emails:", await rRun("![...document.querySelectorAll('.mail-from')].some(e=>e.textContent.includes('@'))"));
       if (process.env.RM_READER_SHOT) {
         const readerImg = await readerWc.capturePage();
         fs.writeFileSync(process.env.RM_READER_SHOT, readerImg.toPNG());
         log("reader screenshot saved:", process.env.RM_READER_SHOT);
       }
+      await rRun("document.querySelector('.mail-message').click()");
+      log("reader rows expand in place:", await rRun("document.querySelector('.mail-message').classList.contains('expanded') && !document.querySelector('.mail-message:last-child').classList.contains('expanded')"));
       await rRun("document.getElementById('btnReplyToggle').click()");
       await new Promise((r) => setTimeout(r, 150));
       log("reader reply box:", await rRun("!!document.querySelector('.reply-box')"));

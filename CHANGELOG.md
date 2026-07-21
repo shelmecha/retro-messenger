@@ -2,6 +2,11 @@
 
 All notable changes, newest first. Version shows in the title bar and Settings.
 
+## v0.7.1
+- **Faster thread opening** — email conversations no longer wait for Gemini before displaying; Gmail content is cleaned locally and shown immediately.
+- **Email-style reader** — full-width message rows replace chat bubbles, with older messages collapsed and the newest message expanded by default.
+- **Compact reader window** — the email window now matches the main Retro Messenger window at 420 × 600 pixels.
+
 ## v0.7.0
 - **Focused manual sync** — ↻ adds only new unread mail to the current board and preserves handled and moved-item progress; waking the app no longer replaces the board.
 - **Writing-style learning** — ✍↻ learns a compact profile from sent mail and uses it for future suggested replies without storing email samples.
