@@ -325,6 +325,8 @@ async function runDiagnostics() {
       log("reader newest expanded:", await rRun("document.querySelector('.mail-message:last-child').classList.contains('expanded')"));
       log("reader uses concise topic:", await rRun("document.getElementById('readerSubject').textContent === 'Canada queue escalation decision'"));
       log("reader hides sender emails:", await rRun("![...document.querySelectorAll('.mail-from')].some(e=>e.textContent.includes('@'))"));
+      log("reader styles quoted replies:", await rRun("document.querySelectorAll('.mail-quote').length === 1"));
+      log("reader removes quote markers:", await rRun("![...document.querySelectorAll('.mail-quote')].some(q=>q.textContent.split('\\n').some(line=>line.trim().startsWith('>')))"));
       if (process.env.RM_READER_SHOT) {
         const readerImg = await readerWc.capturePage();
         fs.writeFileSync(process.env.RM_READER_SHOT, readerImg.toPNG());
