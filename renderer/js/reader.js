@@ -16,25 +16,24 @@
 
   function formatMailBody(value) {
     const source = String(value || "No text content — open in Gmail to view.").replace(/\r\n?/g, "\n");
-    const sections = [];
-
-    source.split("\n").forEach((line) => {
-      const quoted = line.match(/^\s*(?:>\s*)+(.*)$/);
-      const type = quoted ? "quote" : "text";
-      const content = quoted ? quoted[1] : line;
-      const previous = sections[sections.length - 1];
-      if (!previous || previous.type !== type) sections.push({ type, lines: [] });
-      sections[sections.length - 1].lines.push(content);
+    const lines = source.split("\n");
+    const withoutQuoteMarker = (line) => line.replace(/^\s*(?:>\s*)+/, "");
+    const forwardedAt = lines.findIndex((line) => {
+      const marker = withoutQuoteMarker(line).trim();
+      return (
+        /^-{2,}\s*(?:forwarded message|original message)\s*-{2,}$/i.test(marker) ||
+        /^begin forwarded message:$/i.test(marker)
+      );
     });
 
-    return sections
-      .map((section) => {
-        const content = esc(section.lines.join("\n"));
-        return section.type === "quote"
-          ? `<blockquote class="mail-quote">${content}</blockquote>`
-          : `<div class="mail-body-text">${content}</div>`;
-      })
-      .join("");
+    if (forwardedAt < 0) return `<div class="mail-body-text">${esc(source)}</div>`;
+
+    const normalText = lines.slice(0, forwardedAt).join("\n").replace(/\n+$/, "");
+    const forwardedText = lines.slice(forwardedAt).map(withoutQuoteMarker).join("\n");
+    return (
+      (normalText ? `<div class="mail-body-text">${esc(normalText)}</div>` : "") +
+      `<blockquote class="mail-forwarded">${esc(forwardedText)}</blockquote>`
+    );
   }
 
   const subjEl = document.getElementById("readerSubject");

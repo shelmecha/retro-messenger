@@ -2,6 +2,9 @@
 
 All notable changes, newest first. Version shows in the title bar and Settings.
 
+## v0.7.5
+- **Forward-only quote styling** — the vertical quote bar now appears only for Gmail or Outlook forwarded-message sections; ordinary emails stay unstyled.
+
 ## v0.7.4
 - **One Settings button** — removed the redundant Settings chip from the bottom menu and connection-error actions; use the title-bar gear instead.
 
