@@ -92,7 +92,7 @@ async function doFetch(url, opts, timeout, kind) {
 }
 
 async function callAppsScript(base, pathKey, body) {
-  const timeout = pathKey === "run" ? RUN_TIMEOUT : DEFAULT_TIMEOUT;
+  const timeout = ["run", "syncNew", "learnTone", "thread"].includes(pathKey) ? RUN_TIMEOUT : DEFAULT_TIMEOUT;
   if (pathKey === "run" || pathKey === "latest") {
     const url = base + (base.includes("?") ? "&" : "?") + "action=" + pathKey;
     return doFetch(url, { method: "GET" }, timeout, "summary");
@@ -130,9 +130,15 @@ async function call(pathKey, method = "GET", body) {
 
   // ---- Demo mode ------------------------------------------------------
   if (cfg.mockMode) {
-    if (pathKey === "run" || pathKey === "latest") {
+    if (pathKey === "run" || pathKey === "latest" || pathKey === "syncNew") {
       await wait(pathKey === "run" ? 1200 : 700);
-      return { ok: true, mock: true, data: loadMock() };
+      const data = loadMock();
+      if (pathKey === "syncNew") data.addedCount = 2;
+      return { ok: true, mock: true, data };
+    }
+    if (pathKey === "learnTone") {
+      await wait(800);
+      return { ok: true, mock: true, data: { done: 50, tone: "Warm, concise, practical, and friendly." } };
     }
     if (pathKey === "thread") {
       await wait(500);
@@ -144,16 +150,17 @@ async function call(pathKey, method = "GET", body) {
           link: "https://mail.google.com/",
           messages: [
             {
-              from: "Courtney Butler <courtney@withbureau.com>",
-              date: "Mon Jul 20 2026 10:42",
-              body:
-                "Hi Shelvi,\n\nCan you confirm the spare-parts order for Compass Education? " +
-                "The client is chasing an ETA and I'd love to give them something today.\n\nThanks!\nCourtney",
+              senderName: "Courtney Butler",
+              date: "Mon, Jul 20 · 10:42 AM",
+              summary: "Courtney needs an ETA for the Compass Education spare-parts order.",
+              body: "Can you confirm the spare-parts order for Compass Education? The client is chasing an ETA today.",
             },
             {
-              from: "logistics@withbureau.com",
-              date: "Mon Jul 20 2026 11:06",
-              body: "Noted — I'll chase the supplier now and come back to you this afternoon.\n\n(Tested with Meep, the retro app 😄)",
+              senderName: "Shelvi Alferez",
+              date: "Mon, Jul 20 · 11:06 AM",
+              summary: "Shelvi will chase the supplier and report back this afternoon.",
+              body: "I'll chase the supplier now and come back to you this afternoon.",
+              isMe: true,
             },
           ],
         },

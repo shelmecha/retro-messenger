@@ -188,25 +188,46 @@
     overview();
   }
 
-  // Silent refresh when the window is re-shown (refresh-on-wake). Only swaps in
-  // a genuinely newer summary; persistence keeps handled/moved state intact.
-  async function refreshOnWake() {
+  async function syncNew() {
+    const button = document.getElementById("btnSyncNew");
+    button.disabled = true;
+    button.classList.add("busy");
+    UI.setBuddyStatus("Checking for new unread mail…");
     try {
-      const cfg = await window.retro.settings.get();
-      if (cfg.mockMode || !summary) return false;
-      const r = await window.retro.triage.latest();
-      if (!r || !r.ok || !r.data) return false;
-      const incoming = r.data.generatedAt || "";
-      if (!incoming || incoming === summary.generatedAt) return false;
+      const r = await window.retro.triage.syncNew();
+      if (!r || !r.ok || !r.data) return showError(r, true);
       summary = r.data;
       celebrated = false;
       applyPersistence();
       updateProgress();
-      UI.addBotMsg("Refreshed while you were away — here's the latest. 📬");
+      const count = Number(r.data.addedCount || 0);
+      UI.addBotMsg(count ? `Added ${count} new unread email${count === 1 ? "" : "s"} to your board. 📬` : "No new unread emails since your last sync. Your board is unchanged. ✓");
       overview();
-      return true;
-    } catch {
-      return false;
+    } finally {
+      button.disabled = false;
+      button.classList.remove("busy");
+      UI.setBuddyStatus("Online — ready to help");
+    }
+  }
+
+  async function learnTone() {
+    const button = document.getElementById("btnLearnTone");
+    button.disabled = true;
+    button.classList.add("busy");
+    UI.setBuddyStatus("Learning your writing style…");
+    try {
+      const r = await window.retro.triage.learnTone();
+      if (r && r.ok) {
+        const count = Number((r.data && r.data.done) || 0);
+        UI.addBotMsg(`Writing style updated from ${count} sent email${count === 1 ? "" : "s"}. Future reply suggestions will sound more like you. ✍️`);
+      } else {
+        UI.addBotMsg("I couldn't update your writing style: " + ((r && r.message) || "try again shortly."));
+      }
+      menu();
+    } finally {
+      button.disabled = false;
+      button.classList.remove("busy");
+      UI.setBuddyStatus("Online — ready to help");
     }
   }
 
@@ -346,8 +367,9 @@
         UI.addBotMsg("Settings saved. 👍");
         menu();
       },
+      onClosed: () => menu(),
     });
   }
 
-  window.Flows = { greet, menu, openSettings, getWins, refreshOnWake };
+  window.Flows = { greet, menu, openSettings, getWins, syncNew, learnTone };
 })();

@@ -137,8 +137,8 @@ function openReader(payload) {
   }
 
   readerWin = new BrowserWindow({
-    width: 460,
-    height: 600,
+    width: 560,
+    height: 680,
     resizable: true,
     maximizable: false,
     fullscreenable: false,
@@ -193,7 +193,6 @@ function createTray() {
 
   const menu = Menu.buildFromTemplate([
     { label: "Open", click: () => showWindow() },
-    { label: "Check email now", click: () => showWindow(true) },
     { type: "separator" },
     { label: "Quit", click: () => quit() },
   ]);
@@ -201,14 +200,14 @@ function createTray() {
   tray.on("click", () => (win && win.isVisible() ? hideToTray() : showWindow()));
 }
 
-function showWindow(checkNow) {
+function showWindow() {
   if (!win) createWindow();
   win.show();
   win.focus();
   // Only fire the "welcome back" wake when re-showing after a hide — not on
   // the initial launch (avoids a double greeting racing with renderer boot).
-  if (wasHidden || checkNow) {
-    win.webContents.send("app:wake", { checkNow: !!checkNow });
+  if (wasHidden) {
+    win.webContents.send("app:wake", {});
   }
   wasHidden = false;
 }
@@ -255,6 +254,16 @@ async function runDiagnostics() {
     log("modules:", await run("[typeof ChatUI, typeof Triage, typeof Flows, typeof SettingsPanel].join(',')"));
     log("greeting bubbles:", await run("document.querySelectorAll('#messageList .msg-row.bot .bubble').length"));
     log("menu chips:", await run("document.querySelectorAll('#chipTray button').length"));
+    log("manual sync button:", await run("!!document.getElementById('btnSyncNew')"));
+    log("tone button:", await run("!!document.getElementById('btnLearnTone')"));
+    log("manual sync mock:", await run("window.retro.triage.syncNew().then(r => r.ok && r.data.addedCount)"));
+    log("tone learning mock:", await run("window.retro.triage.learnTone().then(r => r.ok && r.data.done)"));
+
+    // Settings close/cancel must restore the home menu, not strand the user.
+    await run("window.Flows.openSettings()");
+    await new Promise((r) => setTimeout(r, 100));
+    await run("document.getElementById('settingsClose').click()");
+    log("settings close returns home:", await run("document.querySelectorAll('#chipTray button').length === 3"));
 
     // Click the first chip ("What's the most important thing...") → triage run.
     await run("document.querySelector('#chipTray button').click()");
@@ -281,6 +290,15 @@ async function runDiagnostics() {
       const rRun = (js) => readerWc.executeJavaScript(js, true);
       log("reader window opened:", true);
       log("reader thread msgs rendered:", await rRun("document.querySelectorAll('.thread-msg').length"));
+      log("reader summaries rendered:", await rRun("document.querySelectorAll('.thread-summary').length"));
+      log("reader avatars rendered:", await rRun("document.querySelectorAll('.thread-avatar').length"));
+      log("reader hides addresses:", await rRun("![...document.querySelectorAll('.thread-from')].some(e => e.textContent.includes('@'))"));
+      if (process.env.RM_READER_SHOT) {
+        const fs = require("fs");
+        const readerImg = await readerWc.capturePage();
+        fs.writeFileSync(process.env.RM_READER_SHOT, readerImg.toPNG());
+        log("reader screenshot saved:", process.env.RM_READER_SHOT);
+      }
       await rRun("document.getElementById('btnReplyToggle').click()");
       await new Promise((r) => setTimeout(r, 150));
       log("reader reply box:", await rRun("!!document.querySelector('.reply-box')"));

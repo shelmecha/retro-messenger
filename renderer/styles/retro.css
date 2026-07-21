@@ -90,6 +90,23 @@ body {
   padding: 2px 6px;
   white-space: nowrap;
 }
+.buddy-tools {
+  display: flex;
+  gap: 3px;
+}
+.icon-button {
+  min-width: 28px;
+  height: 25px;
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 1;
+}
+.icon-button.busy {
+  animation: tool-pulse 0.8s steps(2, end) infinite;
+}
+@keyframes tool-pulse {
+  50% { opacity: 0.45; }
+}
 .title-version {
   opacity: 0.75;
   font-weight: normal;
@@ -247,15 +264,49 @@ body {
   margin-bottom: 6px;
 }
 .reader-thread {
-  gap: 10px;
+  gap: 12px;
+  padding: 12px;
 }
 .thread-msg {
-  align-self: stretch;
-  max-width: 100%;
-  background: #fbfbfb;
-  border: 1px solid #9a9a9a;
-  box-shadow: inset 1px 1px #fff;
-  padding: 6px 8px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 8px;
+  align-self: flex-start;
+  width: 92%;
+  box-sizing: border-box;
+  animation: thread-arrive 0.28s ease-out both;
+}
+.thread-msg.me {
+  align-self: flex-end;
+}
+.thread-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: #6b399f;
+  border: 1px solid #3f1768;
+  font-weight: bold;
+  box-shadow: 1px 1px #aaa;
+}
+.thread-msg.me .thread-avatar {
+  background: #176b52;
+  border-color: #0b4634;
+}
+.thread-card {
+  background: #f7f9ff;
+  border: 1px solid #9aabd1;
+  border-radius: 2px 9px 9px 9px;
+  box-shadow: inset 1px 1px #fff, 1px 1px #c7c7c7;
+  padding: 8px 10px;
+}
+.thread-msg.me .thread-card {
+  background: #eaf6e5;
+  border-color: #9ebc91;
+  border-radius: 9px 2px 9px 9px;
 }
 .thread-head {
   display: flex;
@@ -274,6 +325,23 @@ body {
   line-height: 1.45;
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+.thread-summary {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #222;
+}
+.thread-details {
+  margin-top: 6px;
+}
+.thread-details summary {
+  cursor: pointer;
+  color: #0a3d91;
+  font-size: 10px;
+}
+@keyframes thread-arrive {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .reader-loading {
   color: #555;

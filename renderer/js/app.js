@@ -10,6 +10,8 @@
     document.getElementById("btnClose").onclick = () => window.retro.win.close();
 
     window.SettingsPanel.wire();
+    document.getElementById("btnSyncNew").onclick = () => window.Flows.syncNew();
+    document.getElementById("btnLearnTone").onclick = () => window.Flows.learnTone();
 
     // Show the app version in the title bar (and Settings footer if present).
     try {
@@ -30,16 +32,13 @@
     // Restore today's win chip.
     UI.setWinChip(window.Flows.getWins().count);
 
-    // Re-greet when the window is re-shown from the tray, and quietly pull a
-    // newer summary if one arrived while it was away (refresh-on-wake).
+    // Re-greet when re-shown without changing the board. New unread messages
+    // are added only when the user presses the compact sync button.
     let greetedOnce = false;
     window.retro.onWake(async () => {
       if (!greetedOnce) return;
-      const refreshed = await window.Flows.refreshOnWake();
-      if (!refreshed) {
-        window.ChatUI.addBotMsg("Welcome back! 👋");
-        window.Flows.menu();
-      }
+      window.ChatUI.addBotMsg("Welcome back! Your current board is unchanged. 👋");
+      window.Flows.menu();
     });
 
     // Auto-update: quiet while downloading, then offer a one-click restart.

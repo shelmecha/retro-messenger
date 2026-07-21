@@ -13,6 +13,22 @@
     return d.innerHTML;
   }
 
+  function nameOnly(message) {
+    const value = String(message.senderName || message.from || "Unknown").replace(/<[^>]+>/g, "").replace(/^['\"]|['\"]$/g, "").trim();
+    if (!value.includes("@")) return value;
+    return value.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
+  function initials(name) {
+    return String(name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+  }
+
+  function friendlyDate(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value || "");
+    return date.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  }
+
   const subjEl = document.getElementById("readerSubject");
   const threadEl = document.getElementById("threadList");
   const replyArea = document.getElementById("replyArea");
@@ -38,13 +54,20 @@
     const data = r.data;
     if (data.subject) subjEl.textContent = data.subject;
     threadEl.innerHTML = "";
-    (data.messages || []).forEach((m) => {
+    (data.messages || []).forEach((m, index) => {
+      const name = nameOnly(m);
       const el = document.createElement("div");
-      el.className = "thread-msg";
+      el.className = "thread-msg" + (m.isMe ? " me" : "");
+      el.style.animationDelay = Math.min(index * 70, 420) + "ms";
       el.innerHTML =
-        `<div class="thread-head"><span class="thread-from">${esc(m.from)}</span>` +
-        `<span class="thread-date">${esc(m.date)}</span></div>` +
-        `<div class="thread-body">${esc(m.body)}</div>`;
+        `<div class="thread-avatar" aria-hidden="true">${esc(initials(name))}</div>` +
+        `<div class="thread-card"><div class="thread-head"><span class="thread-from">${esc(name)}</span>` +
+        `<span class="thread-date">${esc(friendlyDate(m.date))}</span></div>` +
+        `<div class="thread-summary">${esc(m.summary || m.body || "No text content.")}</div>` +
+        (m.body && m.body !== m.summary
+          ? `<details class="thread-details"><summary>Read cleaned message</summary><div class="thread-body">${esc(m.body)}</div></details>`
+          : "") +
+        `</div>`;
       threadEl.appendChild(el);
     });
     threadEl.scrollTop = 0;

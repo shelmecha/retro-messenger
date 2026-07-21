@@ -6,7 +6,7 @@
  * Google account.
  *
  * SETUP: paste your Gemini API key below, then Deploy → New deployment →
- * Web app → Execute as: Me → Who has access: Only myself. Copy the /exec URL
+ * Web app → Execute as: Me → Who has access: Anyone. Copy the /exec URL
  * into the app's Settings. Full steps in SETUP-APPSSCRIPT.md.
  */
 
@@ -85,6 +85,10 @@ function route(body) {
       return doMarkUnread(body.ids || []);
     case "thread":
       return doThread(body);
+    case "syncNew":
+      return syncNewUnread();
+    case "learnTone":
+      return learnWritingStyle();
     case "markAllRead":
       return doMarkAllRead();
     case "unarchive":
@@ -101,6 +105,7 @@ function json(obj) {
 /* ============================ TRIAGE ============================ */
 
 function runTriage() {
+  const syncStarted = new Date();
   const items = gather();
   if (!items.length) {
     const empty = Object.assign({}, EMPTY_SUMMARY, {
@@ -108,6 +113,7 @@ function runTriage() {
       generatedAt: new Date().toISOString(),
     });
     saveLatest(empty);
+    PropertiesService.getScriptProperties().setProperty("lastInboxSync", syncStarted.toISOString());
     return empty;
   }
   const parsed = geminiSummarize(items);
@@ -115,7 +121,62 @@ function runTriage() {
   summary.generatedAt = new Date().toISOString();
   summary.unreadCount = countUnread();
   saveLatest(summary);
+  PropertiesService.getScriptProperties().setProperty("lastInboxSync", syncStarted.toISOString());
   return summary;
+}
+
+// Add only unread mail received after the previous deliberate sync. This keeps
+// the current board stable until the user explicitly asks for new work.
+function syncNewUnread() {
+  const props = PropertiesService.getScriptProperties();
+  const last = props.getProperty("lastInboxSync");
+  if (!last) return Object.assign({ ok: true, addedCount: 0 }, runTriage());
+  const syncStarted = new Date();
+  const after = Math.floor(new Date(last).getTime() / 1000);
+  const threads = GmailApp.search("in:inbox is:unread after:" + after, 0, CONFIG.INBOX_LIMIT);
+  const items = [];
+  const seen = {};
+  threads.forEach(function (thread) {
+    thread.getMessages().forEach(function (message) {
+      if (message.isUnread() && message.getDate().getTime() > new Date(last).getTime() && !seen[message.getId()]) {
+        seen[message.getId()] = true;
+        items.push(toItem(message, message.isStarred()));
+      }
+    });
+  });
+
+  const current = getLatest();
+  if (!items.length) {
+    props.setProperty("lastInboxSync", syncStarted.toISOString());
+    return Object.assign({}, current, { ok: true, addedCount: 0, generatedAt: syncStarted.toISOString() });
+  }
+  const addition = mergeBuckets(geminiSummarize(items), items);
+  const merged = Object.assign({}, current);
+  const known = {};
+  Object.keys(EMPTY_SUMMARY).forEach(function (key) {
+    if (!Array.isArray(EMPTY_SUMMARY[key])) return;
+    (merged[key] || []).forEach(function (item) { known[item.id] = true; });
+  });
+  let added = 0;
+  Object.keys(EMPTY_SUMMARY).forEach(function (key) {
+    if (!Array.isArray(EMPTY_SUMMARY[key])) return;
+    merged[key] = merged[key] || [];
+    (addition[key] || []).forEach(function (item) {
+      if (!known[item.id]) {
+        merged[key].unshift(item);
+        known[item.id] = true;
+        added++;
+      }
+    });
+  });
+  merged.headline = addition.headline || current.headline;
+  merged.generatedAt = syncStarted.toISOString();
+  merged.unreadCount = countUnread();
+  merged.addedCount = added;
+  merged.ok = true;
+  saveLatest(merged);
+  props.setProperty("lastInboxSync", syncStarted.toISOString());
+  return merged;
 }
 
 // Cheap unread tally for the "clean sweep" prompt (capped at 100 for speed).
@@ -372,6 +433,8 @@ function buildPrompt(items) {
 
   return [
     "You are an inbox triage assistant. Classify the emails below into buckets.",
+    "When writing suggestedReply, follow this writing-style profile if present:",
+    PropertiesService.getScriptProperties().getProperty("writingStyle") || "No profile yet; be warm and concise.",
     "Return ONLY strict JSON with this exact shape (no markdown, no fences):",
     "{",
     '  "headline": "one warm human sentence summarizing what actually needs attention",',
@@ -395,6 +458,74 @@ function buildPrompt(items) {
     "EMAILS:",
     JSON.stringify(slim),
   ].join("\n");
+}
+
+// Learn a compact style guide from recent sent mail. The source messages are
+// sent to Gemini for this request only; only the resulting profile is stored.
+function learnWritingStyle() {
+  const threads = GmailApp.search("in:sent", 0, 50);
+  const samples = [];
+  const mine = [Session.getActiveUser().getEmail()].concat(GmailApp.getAliases()).map(function (email) {
+    return String(email || "").toLowerCase();
+  }).filter(Boolean);
+  threads.forEach(function (thread) {
+    thread.getMessages().forEach(function (message) {
+      if (samples.length >= 50) return;
+      const match = String(message.getFrom() || "").match(/<([^>]+)>/);
+      const address = String(match ? match[1] : message.getFrom()).trim().toLowerCase();
+      if (mine.length && mine.indexOf(address) === -1) return;
+      const body = cleanQuotedText(safeBody(message)).slice(0, 1500);
+      if (body) samples.push(body);
+    });
+  });
+  if (!samples.length) return { ok: false, error: "No sent emails were available to learn from." };
+  const result = geminiJson([
+    "Study these sent emails and create a compact writing-style profile for future email replies.",
+    "Describe greeting, directness, warmth, sentence length, sign-off, spelling, and habits to preserve.",
+    "Do not retain or repeat private facts, names, addresses, signatures, or email content.",
+    'Return strict JSON: {"tone":"a practical style guide under 900 characters"}',
+    JSON.stringify(samples),
+  ].join("\n"), 1200);
+  const tone = String(result.tone || "").slice(0, 1200);
+  if (!tone) throw new Error("Gemini did not return a writing-style profile.");
+  PropertiesService.getScriptProperties().setProperty("writingStyle", tone);
+  return { ok: true, done: samples.length, tone: tone };
+}
+
+function cleanQuotedText(text) {
+  return String(text || "")
+    .split(/\n(?:On .+ wrote:|From:\s|-{2,}\s*Forwarded message\s*-{2,})/i)[0]
+    .replace(/^>.*$/gm, "")
+    .trim();
+}
+
+function geminiJson(prompt, maxTokens) {
+  const model = pickModel("");
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/" + model +
+    ":generateContent?key=" + CONFIG.GEMINI_API_KEY;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const res = UrlFetchApp.fetch(url, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: "application/json", temperature: 0.1, maxOutputTokens: maxTokens || 4096 },
+      }),
+      muteHttpExceptions: true,
+    });
+    const code = res.getResponseCode();
+    if (code === 200) {
+      const data = JSON.parse(res.getContentText());
+      const text = (((data.candidates || [])[0] || {}).content || { parts: [] }).parts
+        .map(function (part) { return part.text || ""; }).join("");
+      const parsed = safeParseJson(text);
+      if (parsed) return parsed;
+    } else if (code !== 429 && code !== 500 && code !== 503) {
+      throw new Error("Gemini HTTP " + code + ": " + res.getContentText().slice(0, 200));
+    }
+    Utilities.sleep(1500 * (attempt + 1));
+  }
+  throw new Error("Gemini could not prepare this content. Try again shortly.");
 }
 
 // Merge Gemini's classification back with our trusted original fields (esp. URLs).
@@ -438,12 +569,37 @@ function mergeBuckets(parsed, items) {
 function doThread(body) {
   try {
     const thread = GmailApp.getMessageById(body.id).getThread();
-    const messages = thread.getMessages().map(function (m) {
+    const myEmail = String(Session.getActiveUser().getEmail() || "").toLowerCase();
+    const raw = thread.getMessages().map(function (m, index) {
       return {
+        index: index,
         from: m.getFrom(),
-        to: m.getTo(),
-        date: m.getDate().toString(),
-        body: (safeBody(m) || "(no text content — open in Gmail to view)").slice(0, 6000),
+        date: m.getDate().toISOString(),
+        body: cleanQuotedText(safeBody(m)).slice(0, 6000),
+      };
+    });
+    const cleaned = geminiJson([
+      "Turn this email thread into an easy-to-scan conversation.",
+      "For each message, keep its index and return:",
+      "- senderName: human/company name only, never an email address",
+      "- summary: one short sentence capturing the point or requested action",
+      "- body: concise cleaned message text preserving useful facts and discussion flow",
+      "Remove greetings, signatures, disclaimers, job titles, phone numbers, addresses, social links, URLs, tracking text, and repeated quoted history.",
+      "Do not invent facts. Return every message in chronological order.",
+      'Return strict JSON: {"messages":[{"index":0,"senderName":"","summary":"","body":""}]}',
+      JSON.stringify(raw),
+    ].join("\n"), 8192);
+    const byIndex = {};
+    (cleaned.messages || []).forEach(function (message) { byIndex[message.index] = message; });
+    const messages = raw.map(function (message) {
+      const tidy = byIndex[message.index] || {};
+      const fromAddress = String(message.from).match(/<([^>]+)>/) || [];
+      return {
+        senderName: tidy.senderName || senderNameOnly(message.from),
+        date: message.date,
+        summary: tidy.summary || "Message in this conversation.",
+        body: tidy.body || message.body || "No text content — open in Gmail to view.",
+        isMe: !!myEmail && String(fromAddress[1] || message.from).toLowerCase().indexOf(myEmail) !== -1,
       };
     });
     return {
@@ -455,6 +611,12 @@ function doThread(body) {
   } catch (e) {
     return { ok: false, error: String(e) };
   }
+}
+
+function senderNameOnly(from) {
+  const value = String(from || "").replace(/<[^>]+>/g, "").replace(/^['\"]|['\"]$/g, "").trim();
+  if (value && value.indexOf("@") === -1) return value;
+  return String(from || "").split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); });
 }
 
 // Reply on the LAST message of the thread so Gmail threads it correctly,

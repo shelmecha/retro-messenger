@@ -2,6 +2,13 @@
 
 All notable changes, newest first. Version shows in the title bar and Settings.
 
+## v0.7.0
+- **Focused manual sync** — the board stays fixed until the small ↻ button is pressed; it then adds only new unread mail received since the previous sync.
+- **Learns your writing style** — the compact ✍↻ button reviews up to 50 recent sent emails and saves a private tone profile for future Gemini reply suggestions.
+- **Conversation reader redesign** — threads now appear chronologically as animated message cards with name-only senders, avatars, friendly timestamps, Gemini summaries, and expandable cleaned text.
+- **Less email clutter** — Gemini removes signatures, disclaimers, phone numbers, social links, URLs, and repeated quoted history from the reader view.
+- Closing or cancelling Settings now reliably returns to the home menu.
+
 ## v0.6.2
 - **Resilient to Gemini overload** — the backend now auto-retries with backoff when Gemini is briefly overloaded (HTTP 503/500/429) instead of failing, so demand spikes heal themselves.
 - Backend errors now come back as clean JSON, so the app shows the **real reason** ("Gemini is temporarily overloaded — try again") instead of a generic "not a real summary" message.
