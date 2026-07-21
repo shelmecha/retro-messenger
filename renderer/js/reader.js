@@ -38,16 +38,34 @@
     const data = r.data;
     if (data.subject) subjEl.textContent = data.subject;
     threadEl.innerHTML = "";
-    (data.messages || []).forEach((m) => {
-      const el = document.createElement("div");
-      el.className = "thread-msg";
-      el.innerHTML =
-        `<div class="thread-head"><span class="thread-from">${esc(m.from)}</span>` +
-        `<span class="thread-date">${esc(m.date)}</span></div>` +
-        `<div class="thread-body">${esc(m.body)}</div>`;
-      threadEl.appendChild(el);
+    (data.messages || []).forEach((m, index) => {
+      const row = document.createElement("div");
+      row.className = "thread-row" + (m.isMe ? " mine" : "");
+      row.style.setProperty("--stagger", `${index * 55}ms`);
+      const name = String(m.senderName || "Unknown sender").trim();
+      const initials = name.split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase() || "?";
+      row.innerHTML =
+        `<div class="thread-avatar" aria-hidden="true">${esc(initials)}</div>` +
+        `<article class="thread-msg"><div class="thread-head"><span class="thread-from">${esc(name)}</span>` +
+        `<time class="thread-date">${esc(friendlyDate(m.date))}</time></div>` +
+        `<div class="thread-summary">${esc(m.summary || "No summary available.")}</div>` +
+        `<details class="thread-details"><summary>Show cleaned message</summary>` +
+        `<div class="thread-body">${esc(m.body)}</div></details></article>`;
+      threadEl.appendChild(row);
     });
     threadEl.scrollTop = 0;
+  }
+
+  function friendlyDate(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value || "");
+    const now = new Date();
+    const sameDay = date.toDateString() === now.toDateString();
+    const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    if (sameDay) return "Today at " + time;
+    const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    if (date.toDateString() === yesterday.toDateString()) return "Yesterday at " + time;
+    return date.toLocaleDateString([], { month: "short", day: "numeric", year: date.getFullYear() === now.getFullYear() ? undefined : "numeric" }) + " at " + time;
   }
 
   // ---- reply -------------------------------------------------------------

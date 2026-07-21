@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld("retro", {
   triage: {
     run: () => ipcRenderer.invoke("triage:run"),
     latest: () => ipcRenderer.invoke("triage:latest"),
+    syncNew: () => ipcRenderer.invoke("triage:syncNew"),
+    learnTone: () => ipcRenderer.invoke("triage:learnTone"),
   },
   action: {
     unsubscribe: (items) => ipcRenderer.invoke("action:unsubscribe", items),

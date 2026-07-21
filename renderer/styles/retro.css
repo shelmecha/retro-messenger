@@ -83,12 +83,38 @@ body {
   font-size: 11px;
   color: #0a3d91;
 }
+.buddy-tools {
+  display: flex;
+  gap: 3px;
+}
+.buddy-tools button {
+  min-width: 25px;
+  padding: 1px 4px;
+  font-size: 11px;
+}
 .win-chip {
   font-size: 11px;
   background: #ffffcc;
   border: 1px solid #808000;
   padding: 2px 6px;
   white-space: nowrap;
+}
+.buddy-tools {
+  display: flex;
+  gap: 3px;
+}
+.icon-button {
+  min-width: 28px;
+  height: 25px;
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 1;
+}
+.icon-button.busy {
+  animation: tool-pulse 0.8s steps(2, end) infinite;
+}
+@keyframes tool-pulse {
+  50% { opacity: 0.45; }
 }
 .title-version {
   opacity: 0.75;
@@ -247,15 +273,45 @@ body {
   margin-bottom: 6px;
 }
 .reader-thread {
-  gap: 10px;
+  gap: 12px;
+  padding: 12px;
 }
+.thread-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  animation: thread-in 260ms ease-out both;
+  animation-delay: var(--stagger);
+}
+.thread-row.mine {
+  flex-direction: row-reverse;
+}
+.thread-avatar {
+  flex: 0 0 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: #596fa8;
+  border: 1px solid #293d73;
+  font-size: 10px;
+  font-weight: bold;
+}
+.thread-row.mine .thread-avatar { background: #34764a; border-color: #175229; }
 .thread-msg {
-  align-self: stretch;
-  max-width: 100%;
+  flex: 1;
+  max-width: 82%;
   background: #fbfbfb;
   border: 1px solid #9a9a9a;
   box-shadow: inset 1px 1px #fff;
   padding: 6px 8px;
+  border-radius: 2px 9px 9px 9px;
+}
+.thread-row.mine .thread-msg {
+  background: #e4f5df;
+  border-color: #83ad79;
+  border-radius: 9px 2px 9px 9px;
 }
 .thread-head {
   display: flex;
@@ -274,6 +330,29 @@ body {
   line-height: 1.45;
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+.thread-summary {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #222;
+}
+.thread-details {
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1px dotted #aaa;
+}
+.thread-details summary {
+  cursor: pointer;
+  color: #0a3d91;
+  font-size: 10px;
+}
+.thread-details .thread-body { margin-top: 6px; color: #333; }
+@keyframes thread-in {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .thread-row { animation: none; }
 }
 .reader-loading {
   color: #555;

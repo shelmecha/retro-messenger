@@ -2,6 +2,13 @@
 
 All notable changes, newest first. Version shows in the title bar and Settings.
 
+## v0.7.0
+- **Focused manual sync** — ↻ adds only new unread mail to the current board and preserves handled and moved-item progress; waking the app no longer replaces the board.
+- **Writing-style learning** — ✍↻ learns a compact profile from sent mail and uses it for future suggested replies without storing email samples.
+- **Conversation reader redesign** — chronological message cards add name-only senders, avatars, friendly dates, one-sentence summaries, expandable cleaned text, and a distinct style for Shelvi's messages.
+- **Email clutter removal** — Gemini removes signatures, contact details, disclaimers, links, tracking text, and repeated quoted history while preserving useful facts.
+- **Settings navigation fix** — Save, Close, and Cancel all return to the home menu.
+
 ## v0.6.2
 - **Resilient to Gemini overload** — the backend now auto-retries with backoff when Gemini is briefly overloaded (HTTP 503/500/429) instead of failing, so demand spikes heal themselves.
 - Backend errors now come back as clean JSON, so the app shows the **real reason** ("Gemini is temporarily overloaded — try again") instead of a generic "not a real summary" message.

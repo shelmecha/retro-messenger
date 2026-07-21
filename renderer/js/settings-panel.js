@@ -4,9 +4,11 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   let onSavedCb = null;
+  let onClosedCb = null;
 
   async function open(opts) {
     onSavedCb = (opts && opts.onSaved) || null;
+    onClosedCb = (opts && opts.onClosed) || null;
     const cfg = await window.retro.settings.get();
     $("n8nUrl").value = cfg.n8nBaseUrl || "";
     $("chkMock").checked = !!cfg.mockMode;
@@ -18,6 +20,9 @@
 
   function close() {
     $("settingsOverlay").classList.add("hidden");
+    const cb = onClosedCb;
+    onClosedCb = null;
+    if (cb) cb();
   }
 
   function setTestResult(text, ok) {
@@ -35,8 +40,11 @@
       autoLaunch: $("chkAuto").checked,
       sounds: $("chkSounds").checked,
     });
-    close();
-    if (onSavedCb) onSavedCb(next);
+    $("settingsOverlay").classList.add("hidden");
+    const cb = onSavedCb;
+    onSavedCb = null;
+    onClosedCb = null;
+    if (cb) cb(next);
   }
 
   async function test() {

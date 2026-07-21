@@ -159,6 +159,55 @@
     menu();
   }
 
+  async function syncNew() {
+    const button = document.getElementById("btnSyncNew");
+    button.disabled = true;
+    UI.setBuddyStatus("Checking for new mail…");
+    UI.addBotMsg("Checking only for new unread mail — your current board will stay put. ↻");
+    const r = await window.retro.triage.syncNew();
+    button.disabled = false;
+    UI.setBuddyStatus("Online — ready to help");
+    if (!r || !r.ok || !r.data) return showError(r, false);
+    const incoming = r.data;
+    const added = Number(incoming.addedCount || 0);
+    if (!added) {
+      UI.addBotMsg("No new unread messages — your board is unchanged. 🌿");
+      return;
+    }
+    if (!summary) summary = Object.assign({}, incoming);
+    else {
+      T.ORDER.forEach((key) => {
+        const current = summary[key] || (summary[key] = []);
+        const ids = new Set(current.map((item) => item.id));
+        (incoming[key] || []).forEach((item) => {
+          if (!ids.has(item.id)) current.push(item);
+        });
+      });
+      summary.generatedAt = incoming.generatedAt || summary.generatedAt;
+      summary.unreadCount = incoming.unreadCount == null ? summary.unreadCount : incoming.unreadCount;
+    }
+    applyPersistence();
+    updateProgress();
+    UI.addBotMsg(`${added} new message${added === 1 ? " was" : "s were"} added. Your progress is preserved. 📬`);
+    overview();
+  }
+
+  async function learnTone() {
+    const button = document.getElementById("btnLearnTone");
+    button.disabled = true;
+    UI.setBuddyStatus("Learning your writing style…");
+    UI.addBotMsg("Reviewing your recent sent mail. I keep only the style profile — never the email samples. ✍️");
+    const r = await window.retro.triage.learnTone();
+    button.disabled = false;
+    UI.setBuddyStatus("Online — ready to help");
+    if (r && r.ok) {
+      const data = r.data || {};
+      UI.addBotMsg(data.message || "Your writing style is updated for future suggested replies. ✓");
+    } else {
+      UI.addBotMsg("I couldn't update your writing style: " + ((r && r.message) || "please try again."));
+    }
+  }
+
   function menu() {
     UI.setChips([
       { label: "What's the most important thing in my email? 📬", onClick: () => runTriage(true) },
@@ -186,28 +235,6 @@
     applyPersistence();
     updateProgress();
     overview();
-  }
-
-  // Silent refresh when the window is re-shown (refresh-on-wake). Only swaps in
-  // a genuinely newer summary; persistence keeps handled/moved state intact.
-  async function refreshOnWake() {
-    try {
-      const cfg = await window.retro.settings.get();
-      if (cfg.mockMode || !summary) return false;
-      const r = await window.retro.triage.latest();
-      if (!r || !r.ok || !r.data) return false;
-      const incoming = r.data.generatedAt || "";
-      if (!incoming || incoming === summary.generatedAt) return false;
-      summary = r.data;
-      celebrated = false;
-      applyPersistence();
-      updateProgress();
-      UI.addBotMsg("Refreshed while you were away — here's the latest. 📬");
-      overview();
-      return true;
-    } catch {
-      return false;
-    }
   }
 
   // Remaining (unhandled) items in a bucket — the counts users see tick down.
@@ -346,8 +373,9 @@
         UI.addBotMsg("Settings saved. 👍");
         menu();
       },
+      onClosed: () => menu(),
     });
   }
 
-  window.Flows = { greet, menu, openSettings, getWins, refreshOnWake };
+  window.Flows = { greet, menu, openSettings, getWins, syncNew, learnTone };
 })();
