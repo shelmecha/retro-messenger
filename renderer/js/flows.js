@@ -469,5 +469,13 @@
     });
   }
 
-  window.Flows = { greet, menu, openSettings, getWins, syncNew, learnTone };
+  window.Flows = {
+    greet,
+    menu,
+    openSettings,
+    getWins,
+    syncNew,
+    learnTone,
+    refreshInbox: () => runTriage(true),
+  };
 })();

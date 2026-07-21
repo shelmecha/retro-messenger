@@ -118,8 +118,9 @@
   }
 
   function expandMessage(selected) {
+    const shouldExpand = !selected.classList.contains("expanded");
     threadEl.querySelectorAll(".mail-message").forEach((message) => {
-      const expanded = message === selected;
+      const expanded = message === selected && shouldExpand;
       message.classList.toggle("expanded", expanded);
       message.setAttribute("aria-expanded", expanded ? "true" : "false");
     });

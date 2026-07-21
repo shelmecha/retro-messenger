@@ -42,6 +42,9 @@ contextBridge.exposeInMainWorld("retro", {
   onWake: (cb) => {
     ipcRenderer.on("app:wake", (_e, payload) => cb(payload || {}));
   },
+  onTrayCommand: (cb) => {
+    ipcRenderer.on("tray:command", (_e, payload) => cb(payload || {}));
+  },
   update: {
     check: () => ipcRenderer.invoke("update:check"),
     install: () => ipcRenderer.invoke("update:install"),
