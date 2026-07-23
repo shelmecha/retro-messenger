@@ -2,6 +2,21 @@
 
 All notable changes, newest first. Version shows in the title bar and Settings.
 
+## v0.7.8
+- **Urgent flashcards** — Important & Urgent now uses the same focused one-email-at-a-time deck as What's New.
+- **Clear Cleaned up** — “Clear all” marks the whole Cleaned up bucket read in Gmail and immediately reduces its count to zero; “Restore…” replaces the longer “Not junk” label.
+- **Gmail-style quote line** — intentionally preserved `>` quotations render as a clean vertical quote block instead of showing repeated greater-than characters.
+- **Backend hotfix 0.7.8.2** — the reader now removes conservative signature blocks and mobile signatures while preserving the actual message and forwarded-email content.
+- **Backend hotfix 0.7.8.1** — ordinary replies now recognize Gmail quote headers even when the date, sender address, and `wrote:` are wrapped onto separate lines.
+- **One-card What's new deck** — review one email at a time instead of scrolling through the whole bucket.
+- **Purposeful next steps** — use Draft reply, Mark read, or Do later; completed cards retain Undo and then offer Next email.
+- **Honest deck progress** — each card shows its position and the number of unhandled emails remaining.
+- **Reliable Gemini JSON** — schema-enforced responses, a larger output allowance, and bounded model failover prevent malformed or truncated AI replies from blocking inbox triage.
+- **Useful fallback diagnostics** — if AI is unavailable, Gmail still loads and the saved summary records a safe error code, model, and finish reason for troubleshooting.
+- **Deployment check** — the Apps Script web app now exposes `?action=version` so the live backend version can be verified after deployment.
+- **Faster recovery after AI failure** — fallback inboxes retry Gemini after one minute instead of being cached for the normal ten-minute success window.
+- **No duplicated reply history** — wrapped Gmail and Outlook quote headers are removed from ordinary message bodies, while explicitly forwarded emails remain visible and styled.
+
 ## v0.7.7
 - **Click again to collapse** — an expanded email in the thread reader closes when clicked a second time, making the messages below easier to reach.
 - **Clear hover feedback** — expanded messages keep the hand cursor so it is obvious they can be clicked again to close.

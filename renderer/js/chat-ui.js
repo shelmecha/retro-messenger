@@ -78,6 +78,7 @@
   function addElement(elm) {
     const row = document.createElement("div");
     row.className = "msg-row bot";
+    if (elm && elm.classList && elm.classList.contains("flashcard-deck")) row.classList.add("flashcard-row");
     row.appendChild(elm);
     listEl().appendChild(row);
     scrollToEnd();
