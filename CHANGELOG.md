@@ -2,7 +2,14 @@
 
 All notable changes, newest first. Version shows in the title bar and Settings.
 
+## v0.7.9
+- **Updater delivery fix** — the desktop version is now newer than every earlier v0.7.8 build, so Restart & update can actually install the corrected interface.
+- **Urgent flashcards delivered** — Important / Urgent now shows one focused card at a time with Do later and Next email controls.
+- **Cleaned up controls delivered** — “Restore…” replaces “Not junk,” and “Clear all” marks every reviewed message read in Gmail.
+- **Gemini truncation fix** — includes backend 0.7.8.3 source with compact classification, low/no-thinking generation, and automatic batch recovery.
+
 ## v0.7.8
+- **Backend hotfix 0.7.8.3** — compact one-result-per-email JSON, low/no-thinking generation, and automatic ten-email batch recovery prevent 30-email scans from ending at `MAX_TOKENS`.
 - **Urgent flashcards** — Important & Urgent now uses the same focused one-email-at-a-time deck as What's New.
 - **Clear Cleaned up** — “Clear all” marks the whole Cleaned up bucket read in Gmail and immediately reduces its count to zero; “Restore…” replaces the longer “Not junk” label.
 - **Gmail-style quote line** — intentionally preserved `>` quotations render as a clean vertical quote block instead of showing repeated greater-than characters.
