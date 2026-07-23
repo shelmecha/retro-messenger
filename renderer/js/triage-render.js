@@ -75,14 +75,14 @@
   }
 
   // Append a small "↩ Undo" next to the result line (used after Mark read).
-  function addUndo(card, bucketKey, item, onChange) {
+  function addUndo(card, bucketKey, item, onChange, options) {
     const el = card.querySelector(".card-result");
     const undo = actBtn("↩ Undo", "undo-link", async () => {
       undo.disabled = true;
       const r = await window.retro.action.markUnread([item.id]);
       if (r && r.ok) {
         item._handled = false;
-        const fresh = makeCard(bucketKey, item, onChange);
+        const fresh = makeCard(bucketKey, item, onChange, options);
         card.replaceWith(fresh);
         onChange && onChange(item, { type: "undone" });
       } else {
@@ -94,11 +94,13 @@
   }
 
   // onChange(item, {type: "acted"|"undone"}) — keeps progress/win chip honest.
-  function makeCard(bucketKey, item, onChange) {
+  function makeCard(bucketKey, item, onChange, options) {
+    options = options || {};
     const cfg = BUCKETS[bucketKey];
     const topic = cardTopic(item);
     const card = document.createElement("div");
     card.className = "item-card";
+    if (item.id) card.dataset.itemId = item.id;
     if (item._handled) card.classList.add("handled");
 
     const metaVal = cfg.meta ? item[cfg.meta] : "";
@@ -131,7 +133,7 @@
 
     if (REPLYABLE.includes(cfg.type)) {
       actions.appendChild(
-        actBtn("✍️ Draft reply", "default", () => showTemplates(card, bucketKey, item, onChange))
+        actBtn("✍️ Draft reply", "default", () => showTemplates(card, bucketKey, item, onChange, options))
       );
     }
 
@@ -179,7 +181,7 @@
           if (r && r.ok) {
             showResult(card, r.mock ? "✓ (demo) marked read " : "✓ Marked read ");
             markHandled(card, item, onChange);
-            addUndo(card, bucketKey, item, onChange);
+            addUndo(card, bucketKey, item, onChange, options);
           } else if (r && r.code === "NOT_SUPPORTED") {
             this.disabled = false;
             showResult(card, "Mark-read needs the Apps Script backend.", true);
@@ -191,11 +193,15 @@
       );
     }
 
-    // Cleaned-up escape hatch: "the robot guessed wrong" — rescue into a real pile.
+    // Cleaned-up escape hatch: restore a mistaken cleanup into a real pile.
     if (cfg.type === "cleaned" && item.id) {
       actions.appendChild(
-        actBtn("🚚 Not junk → move to…", null, () => showMoveTargets(card, item, onChange))
+        actBtn("↩ Restore…", null, () => showMoveTargets(card, item, onChange))
       );
+    }
+
+    if (typeof options.onDefer === "function" && !item._handled) {
+      actions.appendChild(actBtn("Do later →", "flashcard-later", () => options.onDefer(item)));
     }
 
     if (!actions.children.length) actions.remove();
@@ -224,13 +230,13 @@
     return false;
   }
 
-  // Cleaned-up rescue: pick a destination pile → item re-renders there and counts.
+  // Cleaned-up restore: pick a destination pile → item re-renders there and counts.
   function showMoveTargets(card, item, onChange) {
     const actions = card.querySelector(".card-actions");
     actions.innerHTML = "";
     const title = document.createElement("div");
     title.className = "tmpl-title";
-    title.textContent = "Move it to…";
+    title.textContent = "Restore to…";
     const list = document.createElement("div");
     list.className = "tmpl-list";
 
@@ -254,7 +260,7 @@
   }
 
   // Step 1: pick a starting point → fills the editor. Step 2: edit → send/draft.
-  function showTemplates(card, bucketKey, item, onChange) {
+  function showTemplates(card, bucketKey, item, onChange, options) {
     const actions = card.querySelector(".card-actions");
     actions.innerHTML = "";
     const title = document.createElement("div");
@@ -263,13 +269,13 @@
     const list = document.createElement("div");
     list.className = "tmpl-list";
 
-    const pick = (label, body) => actBtn(label, null, () => showEditor(card, bucketKey, item, body, onChange));
+    const pick = (label, body) => actBtn(label, null, () => showEditor(card, bucketKey, item, body, onChange, options));
     if (item.suggestedReply) list.appendChild(pick("✨ Gemini's suggestion", item.suggestedReply));
     TEMPLATES.forEach((t) => list.appendChild(pick(t.label, t.body)));
     list.appendChild(pick("✏️ Blank", ""));
 
     const back = actBtn("← back", null, () => {
-      const fresh = makeCard(bucketKey, item, onChange);
+      const fresh = makeCard(bucketKey, item, onChange, options);
       card.replaceWith(fresh);
     });
 
@@ -278,7 +284,7 @@
     actions.appendChild(back);
   }
 
-  function showEditor(card, bucketKey, item, startingText, onChange) {
+  function showEditor(card, bucketKey, item, startingText, onChange, options) {
     const actions = card.querySelector(".card-actions");
     actions.innerHTML = "";
 
@@ -329,7 +335,7 @@
       finishAction(r, { demo: "✓ (demo) draft saved", live: "✓ Draft saved — review in Gmail" });
     });
 
-    const back = actBtn("← back", null, () => showTemplates(card, bucketKey, item, onChange));
+    const back = actBtn("← back", null, () => showTemplates(card, bucketKey, item, onChange, options));
 
     row.appendChild(sendBtn);
     row.appendChild(draftBtn);

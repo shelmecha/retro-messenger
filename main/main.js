@@ -323,10 +323,39 @@ async function runDiagnostics() {
     log("after-run chips (buckets+done):", await run("document.querySelectorAll('#chipTray button').length"));
     log("headline present:", await run("[...document.querySelectorAll('.msg-row.bot .bubble')].some(b=>b.textContent.includes('need you today'))"));
 
-    // Open the urgent bucket (first bucket chip).
+    // What's new is a one-card review deck, not a long scrolling list.
+    await run("[...document.querySelectorAll('#chipTray button')].find(b=>/what's new/i.test(b.textContent)).click()");
+    await new Promise((r) => setTimeout(r, 200));
+    log("what's-new deck rendered:", await run("!!document.querySelector('.flashcard-deck')"));
+    log("what's-new shows one card:", await run("document.querySelectorAll('.flashcard-deck .item-card').length === 1"));
+    log("what's-new deck counter:", await run("/Card 1 of 2.*2 remaining/.test(document.querySelector('.flashcard-progress').textContent)"));
+    log("what's-new has do-later:", await run("!!document.querySelector('.flashcard-later')"));
+    if (process.env.RM_DECK_SHOT) {
+      const deckImg = await wc.capturePage();
+      fs.writeFileSync(process.env.RM_DECK_SHOT, deckImg.toPNG());
+      log("what's-new deck screenshot saved:", process.env.RM_DECK_SHOT);
+    }
+    const firstDeckId = await run("document.querySelector('.flashcard-current').dataset.itemId");
+    await run("document.querySelector('.flashcard-later').click()");
+    log("do-later advances one card:", await run("document.querySelectorAll('.flashcard-deck .item-card').length === 1 && document.querySelector('.flashcard-current').dataset.itemId !== '" + firstDeckId + "'"));
+    await run("[...document.querySelectorAll('.flashcard-current .card-actions button')].find(b=>/mark read/i.test(b.textContent)).click()");
+    await new Promise((r) => setTimeout(r, 600));
+    log("completed flashcard offers next:", await run("!!document.querySelector('.flashcard-next')"));
+    log("completed flashcard retains undo:", await run("!!document.querySelector('.flashcard-deck .undo-link')"));
+    await run("document.querySelector('.flashcard-next').click()");
+    log("next keeps one-card layout:", await run("document.querySelectorAll('.flashcard-deck .item-card').length === 1"));
+    await run("[...document.querySelectorAll('#chipTray button')].find(b=>/back to summary/i.test(b.textContent)).click()");
+    await new Promise((r) => setTimeout(r, 150));
+    log("deck removed on summary return:", await run("!document.querySelector('.flashcard-deck')"));
+
+    // Important / Urgent is also a one-card review deck.
     await run("document.querySelector('#chipTray button').click()");
     await new Promise((r) => setTimeout(r, 300));
-    log("cards rendered:", await run("document.querySelectorAll('.item-card').length"));
+    log("urgent deck rendered:", await run("!!document.querySelector('.flashcard-deck')"));
+    log("urgent shows one card:", await run("document.querySelectorAll('.flashcard-deck .item-card').length === 1"));
+    log("urgent deck counter:", await run("/Card 1 of 2.*2 remaining/.test(document.querySelector('.flashcard-progress').textContent)"));
+    log("urgent has do-later:", await run("!!document.querySelector('.flashcard-later')"));
+    const firstUrgentId = await run("document.querySelector('.flashcard-current').dataset.itemId");
     log("first card has actions:", await run("!!document.querySelector('.item-card .card-actions button')"));
     log("card shows concise topic:", await run("document.querySelector('.item-card .card-subject').textContent === 'Canada queue escalation decision'"));
     log("original subject preserved:", await run("document.querySelector('.item-card .card-subject').title.includes('CA service queue')"));
@@ -350,19 +379,20 @@ async function runDiagnostics() {
     if (readerWc) {
       const rRun = (js) => readerWc.executeJavaScript(js, true);
       log("reader window opened:", true);
-      log("reader messages rendered:", await rRun("document.querySelectorAll('.mail-message').length === 2"));
+      log("reader messages rendered:", await rRun("document.querySelectorAll('.mail-message').length === 3"));
       log("reader recovers sender from raw From:", await rRun("document.querySelector('.mail-message:first-child .mail-from').textContent === 'Courtney Butler'"));
       log("reader has no unknown senders:", await rRun("![...document.querySelectorAll('.mail-from')].some(e=>/unknown sender/i.test(e.textContent))"));
       log("reader matches main size:", await rRun("window.innerWidth === 420 && window.innerHeight === 600"));
-      log("reader avatars:", await rRun("document.querySelectorAll('.mail-avatar').length === 2"));
-      log("reader previews:", await rRun("document.querySelectorAll('.mail-preview').length === 2"));
+      log("reader avatars:", await rRun("document.querySelectorAll('.mail-avatar').length === 3"));
+      log("reader previews:", await rRun("document.querySelectorAll('.mail-preview').length === 3"));
       log("reader newest expanded:", await rRun("document.querySelector('.mail-message:last-child').classList.contains('expanded')"));
       log("expanded reader row uses pointer cursor:", await rRun("getComputedStyle(document.querySelector('.mail-message:last-child')).cursor === 'pointer'"));
       log("reader uses concise topic:", await rRun("document.getElementById('readerSubject').textContent === 'Canada queue escalation decision'"));
       log("reader hides sender emails:", await rRun("![...document.querySelectorAll('.mail-from')].some(e=>e.textContent.includes('@'))"));
       log("reader normal email has no quote line:", await rRun("!document.querySelector('.mail-message:first-child .mail-forwarded')"));
       log("reader styles forwarded email:", await rRun("document.querySelectorAll('.mail-forwarded').length === 1"));
-      log("reader removes forwarded quote markers:", await rRun("![...document.querySelectorAll('.mail-forwarded')].some(q=>q.textContent.split('\\n').some(line=>line.trim().startsWith('>')))"));
+      log("reader styles embedded quote:", await rRun("document.querySelectorAll('.mail-quoted').length === 1"));
+      log("reader removes visible quote markers:", await rRun("![...document.querySelectorAll('.mail-forwarded,.mail-quoted')].some(q=>q.textContent.split('\\n').some(line=>line.trim().startsWith('>')))"));
       if (process.env.RM_READER_SHOT) {
         const readerImg = await readerWc.capturePage();
         fs.writeFileSync(process.env.RM_READER_SHOT, readerImg.toPNG());
@@ -401,9 +431,11 @@ async function runDiagnostics() {
     log("card collapsed (handled):", await run("!!document.querySelector('.item-card.handled')"));
     log("progress label:", await run("(document.getElementById('progressLabel')||{}).textContent"));
 
-    // Mark read on the next unhandled card → collapses + offers Undo.
+    // Advance the urgent deck, then mark the next card read and undo it.
+    await run("document.querySelector('.flashcard-next').click()");
+    log("urgent next keeps one-card layout:", await run("document.querySelectorAll('.flashcard-deck .item-card').length === 1 && document.querySelector('.flashcard-current').dataset.itemId !== '" + firstUrgentId + "'"));
     await run(
-      "[...document.querySelectorAll('.item-card:not(.handled) .card-actions button')].find(b=>b.textContent.includes('Mark read')).click()"
+      "[...document.querySelectorAll('.flashcard-current .card-actions button')].find(b=>b.textContent.includes('Mark read')).click()"
     );
     await new Promise((r) => setTimeout(r, 600));
     log("undo offered:", await run("!!document.querySelector('.undo-link')"));
@@ -415,27 +447,38 @@ async function runDiagnostics() {
     // Bucket view must NOT have "I'm done" — only "Back to summary".
     log("bucket has no I'm-done:", await run("![...document.querySelectorAll('#chipTray button')].some(b=>/done/i.test(b.textContent))"));
 
-    // Persistence: back to summary, re-open urgent → handled card still collapsed.
+    // Persistence: handled urgent disappears from the deck and its count stays lower.
     await run("[...document.querySelectorAll('#chipTray button')].find(b=>/back to summary/i.test(b.textContent)).click()");
     await new Promise((r) => setTimeout(r, 150));
+    log("urgent summary count decreased:", await run("/\\(1\\)/.test(document.querySelector('#chipTray button').textContent)"));
     await run("document.querySelector('#chipTray button').click()"); // first bucket again
     await new Promise((r) => setTimeout(r, 200));
-    log("handled persisted after re-open:", await run("!!document.querySelector('.item-card.handled')"));
+    log("urgent handled card stays out of deck:", await run("document.querySelectorAll('.flashcard-deck .item-card').length === 1 && document.querySelector('.flashcard-current').dataset.itemId !== '" + firstUrgentId + "'"));
 
-    // Moved-card path: open Cleaned up, rescue first item to Urgent.
+    // Cleaned up: restore one item, then clear the rest directly in Gmail.
     await run("[...document.querySelectorAll('#chipTray button')].find(b=>/back to summary/i.test(b.textContent)).click()");
     await new Promise((r) => setTimeout(r, 150));
     await run("[...document.querySelectorAll('#chipTray button')].find(b=>/cleaned up/i.test(b.textContent)).click()");
     await new Promise((r) => setTimeout(r, 200));
-    await run("[...document.querySelectorAll('.item-card .card-actions button')].find(b=>/not junk/i.test(b.textContent)).click()");
+    log("cleaned-up has clear-all:", await run("[...document.querySelectorAll('#chipTray button')].some(b=>/clear all/i.test(b.textContent))"));
+    log("cleaned-up uses restore label:", await run("[...document.querySelectorAll('.item-card .card-actions button')].some(b=>/restore/i.test(b.textContent))"));
+    if (process.env.RM_CLEANED_SHOT) {
+      const cleanedImg = await wc.capturePage();
+      fs.writeFileSync(process.env.RM_CLEANED_SHOT, cleanedImg.toPNG());
+      log("cleaned-up screenshot saved:", process.env.RM_CLEANED_SHOT);
+    }
+    await run("[...document.querySelectorAll('.item-card .card-actions button')].find(b=>/restore/i.test(b.textContent)).click()");
     await new Promise((r) => setTimeout(r, 150));
     await run("[...document.querySelectorAll('.item-card .tmpl-list button')].find(b=>/urgent/i.test(b.textContent)).click()");
     await new Promise((r) => setTimeout(r, 200));
     log("moved card re-rendered as urgent:", await run("[...document.querySelectorAll('.item-card .card-badge')].some(b=>/Important/i.test(b.textContent))"));
+    await run("[...document.querySelectorAll('#chipTray button')].find(b=>/clear all/i.test(b.textContent)).click()");
+    await new Promise((r) => setTimeout(r, 600));
+    log("cleaned-up clear-all confirms Gmail action:", await run("[...document.querySelectorAll('.msg-row.bot .bubble')].some(b=>/cleaned up is clear.*marked read/i.test(b.textContent))"));
+    log("chips after cleaned-up clear:", await run("[...document.querySelectorAll('#chipTray button')].map(b=>b.textContent).join(' | ')"));
+    log("cleaned-up count reaches zero:", await run("![...document.querySelectorAll('#chipTray button')].some(b=>/cleaned up/i.test(b.textContent))"));
 
     // Finish from the summary page → clean-sweep offer (mock unreadCount = 7).
-    await run("[...document.querySelectorAll('#chipTray button')].find(b=>/back to summary/i.test(b.textContent)).click()");
-    await new Promise((r) => setTimeout(r, 150));
     await run("[...document.querySelectorAll('#chipTray button')].find(b=>/done/i.test(b.textContent)).click()");
     await new Promise((r) => setTimeout(r, 150));
     log("clean-sweep offered:", await run("[...document.querySelectorAll('#chipTray button')].some(b=>/mark all read/i.test(b.textContent))"));

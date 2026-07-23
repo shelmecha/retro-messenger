@@ -179,6 +179,17 @@ async function call(pathKey, method = "GET", body) {
                 "> The client is chasing an ETA today.",
               isMe: true,
             },
+            {
+              senderName: "Gareth Simmons",
+              from: '"Gareth Simmons" <gareth@example.com>',
+              date: "2026-07-20T11:23:00.000Z",
+              summary: "Gareth confirms the initial payment and quotes the earlier invoice message.",
+              body:
+                "Hi Joe,\n\nThanks again for your assistance — the initial 50% payment is now paid.\n\n" +
+                "> On Tue, Jul 19, 2026 at 11:46 AM Joe Marshall <joe@example.com> wrote:\n>\n" +
+                "> Thanks Gareth,\n>\n> I have secured the unit for you; please see the invoice.",
+              isMe: false,
+            },
           ],
         },
       };

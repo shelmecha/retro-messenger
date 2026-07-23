@@ -192,6 +192,37 @@ body {
   padding: 8px;
   font-size: 12px;
 }
+.msg-row.flashcard-row {
+  align-self: stretch;
+  max-width: 100%;
+}
+.flashcard-deck {
+  width: 100%;
+  box-sizing: border-box;
+}
+.flashcard-progress {
+  margin: 0 2px 5px;
+  color: #555;
+  font-size: 11px;
+  font-weight: bold;
+}
+.flashcard-current {
+  min-height: 145px;
+  box-sizing: border-box;
+}
+.flashcard-nav {
+  min-height: 25px;
+  margin-top: 7px;
+  text-align: right;
+}
+.flashcard-empty {
+  padding: 14px 10px;
+  border: 1px solid #9a9a9a;
+  background: #f2f7f2;
+  color: #245b32;
+  font-weight: bold;
+  text-align: center;
+}
 .card-badge {
   font-weight: bold;
   font-size: 11px;
@@ -396,10 +427,12 @@ body {
   overflow-wrap: anywhere;
 }
 .mail-body-text,
-.mail-forwarded {
+.mail-forwarded,
+.mail-quoted {
   white-space: pre-wrap;
 }
-.mail-forwarded {
+.mail-forwarded,
+.mail-quoted {
   margin: 7px 0;
   padding: 1px 0 1px 10px;
   border-left: 3px solid #aeb7c8;

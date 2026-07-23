@@ -10,7 +10,7 @@
  * into the app's Settings. Full steps in SETUP-APPSSCRIPT.md.
  */
 
-const BACKEND_VERSION = "0.7.6";
+const BACKEND_VERSION = "0.7.8.2";
 
 const CONFIG = {
   GEMINI_API_KEY: "PASTE_YOUR_GEMINI_KEY_HERE", // from https://aistudio.google.com/apikey
@@ -21,14 +21,15 @@ const CONFIG = {
     "gemini-2.5-flash-lite",
     "gemini-3.5-flash",
     "gemini-2.5-flash",
-    "gemini-3-flash-preview",
   ],
-  MODEL_SELECTION_VERSION: "quota-friendly-v1",
+  MODEL_SELECTION_VERSION: "structured-json-v2",
+  GEMINI_MODEL_ATTEMPTS: 3,
   INBOX_QUERY: "in:inbox newer_than:3d",
   INBOX_LIMIT: 20,
   STARRED_QUERY: "is:starred older_than:5d",
   STARRED_LIMIT: 10,
   SUMMARY_REUSE_MINUTES: 10,
+  AI_FALLBACK_RETRY_MINUTES: 1,
   TONE_SAMPLE_LIMIT: 20,
   TONE_SAMPLE_CHARS: 1200,
   SUBSCRIPTIONS_LABEL: "Subscriptions",
@@ -47,11 +48,56 @@ const EMPTY_SUMMARY = {
   cleanedUp: [],
 };
 
+// Gemini's structured-output contract. Requiring every bucket makes malformed
+// or incomplete model output far less likely than prompt-only JSON instructions.
+const SUMMARY_RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    headline: { type: "STRING", description: "One warm sentence about what needs attention." },
+    importantUrgent: summaryBucketSchema(["why", "action", "suggestedReply"]),
+    needsFollowUp: summaryBucketSchema(["suggestedReply"]),
+    starredOverdue: summaryBucketSchema(["context", "suggestedReply"]),
+    canUnsubscribe: summaryBucketSchema(["reason"]),
+    keepSubscriptions: summaryBucketSchema(["why"]),
+    whatsNew: summaryBucketSchema(["why"]),
+    cleanedUp: summaryBucketSchema(["reason"]),
+  },
+  required: [
+    "headline",
+    "importantUrgent",
+    "needsFollowUp",
+    "starredOverdue",
+    "canUnsubscribe",
+    "keepSubscriptions",
+    "whatsNew",
+    "cleanedUp",
+  ],
+};
+
+function summaryBucketSchema(extraFields) {
+  const properties = {
+    id: { type: "STRING", description: "The Gmail message id supplied in the prompt." },
+    topic: { type: "STRING", description: "A plain 3 to 8 word topic, at most 60 characters." },
+  };
+  (extraFields || []).forEach(function (field) {
+    properties[field] = { type: "STRING", description: "Brief text, at most 200 characters." };
+  });
+  return {
+    type: "ARRAY",
+    items: {
+      type: "OBJECT",
+      properties: properties,
+      required: ["id", "topic"],
+    },
+  };
+}
+
 /* ============================ ROUTING ============================ */
 
 function doGet(e) {
   try {
     const action = (e && e.parameter && e.parameter.action) || "latest";
+    if (action === "version") return json({ ok: true, backendVersion: BACKEND_VERSION });
     if (action === "run") return json(runTriage());
     return json(getLatest());
   } catch (err) {
@@ -132,10 +178,15 @@ function runTriage() {
 function runTriageLocked() {
   const saved = getLatest();
   const ageMinutes = summaryAgeMinutes(saved);
-  if (ageMinutes !== null && ageMinutes < CONFIG.SUMMARY_REUSE_MINUTES) {
+  const reuseMinutes = saved.aiFallback
+    ? CONFIG.AI_FALLBACK_RETRY_MINUTES
+    : CONFIG.SUMMARY_REUSE_MINUTES;
+  if (ageMinutes !== null && ageMinutes < reuseMinutes) {
     saved.reusedCachedSummary = true;
     saved.cacheNotice =
-      "I reused your recent summary to avoid another Gemini request. Tap the refresh icon to check only for new mail.";
+      saved.aiFallback
+        ? "Gemini was just attempted, so I kept your fallback inbox briefly. Try the full refresh again in about a minute."
+        : "I reused your recent summary to avoid another Gemini request. Tap the refresh icon to check only for new mail.";
     return saved;
   }
 
@@ -246,6 +297,7 @@ function buildNoAiSummary(items, err) {
   out.aiFallback = true;
   out.aiFallbackKind =
     (err && err.quotaKind) || (/invalid|unauthorized|api key/i.test(errorText) ? "configuration" : "temporary");
+  out.aiDiagnostic = safeGeminiDiagnostic(err);
   out.aiNotice =
     out.aiFallbackKind === "daily"
       ? "Gemini's daily project quota is used up. It resets at midnight Pacific time, so I loaded your emails without AI sorting."
@@ -368,16 +420,23 @@ function parseUnsub(m) {
 function geminiSummarize(items) {
   const payload = {
     contents: [{ parts: [{ text: buildPrompt(items) }] }],
-    // Big output budget: thinking models spend tokens on reasoning before the
-    // JSON, and a truncated reply is what breaks JSON.parse.
-    generationConfig: { responseMimeType: "application/json", temperature: 0.2, maxOutputTokens: 8192 },
+    // Schema enforcement prevents the prompt-only JSON failures seen in the
+    // Apps Script execution log. The larger budget also protects 30-email runs
+    // from being cut off before the closing braces arrive.
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: SUMMARY_RESPONSE_SCHEMA,
+      maxOutputTokens: 16384,
+    },
   };
 
-  let model = pickModel("");
-  let malformed = 0; // times the model returned unparseable JSON
-  let transient = 0; // times Google returned a temporary 5xx
+  const triedModels = {};
+  const transientByModel = {};
+  let model = pickModel([]);
+  let lastError = null;
 
   for (let attempt = 0; attempt < 8; attempt++) {
+    triedModels[model] = true;
     const url =
       "https://generativelanguage.googleapis.com/v1beta/models/" +
       model +
@@ -393,52 +452,126 @@ function geminiSummarize(items) {
     const code = res.getResponseCode();
 
     if (code === 200) {
-      const data = JSON.parse(res.getContentText());
-      const text =
-        (((data.candidates || [])[0] || {}).content || { parts: [] }).parts
-          .map(function (p) {
-            return p.text || "";
-          })
-          .join("") || "";
+      let data = {};
+      try {
+        data = JSON.parse(res.getContentText() || "{}");
+      } catch (_) {}
+      const candidate = (data.candidates || [])[0] || {};
+      const text = ((candidate.content || { parts: [] }).parts || [])
+        .map(function (p) { return p.text || ""; })
+        .join("") || "";
       const parsed = safeParseJson(text);
-      if (parsed) return parsed;
-      if (++malformed < 2) continue; // model hiccup — ask again once
-      throw new Error("Gemini answered with malformed JSON twice — run again in a minute.");
+      if (isCompleteSummaryPayload(parsed)) return parsed;
+
+      const finishReason = String(candidate.finishReason || "UNKNOWN");
+      lastError = new Error(
+        finishReason === "MAX_TOKENS"
+          ? "Gemini's JSON was cut off before it finished."
+          : "Gemini returned incomplete JSON even with schema enforcement."
+      );
+      lastError.code = finishReason === "MAX_TOKENS" ? "GEMINI_TRUNCATED" : "GEMINI_MALFORMED";
+      lastError.model = model;
+      lastError.finishReason = finishReason;
+      lastError.responseChars = text.length;
+
+      const nextAfterJson = nextGeminiModel(triedModels);
+      if (nextAfterJson) {
+        model = nextAfterJson;
+        continue;
+      }
+      throw lastError;
     }
 
-    // Temporary overload/outage — back off and retry a few times so brief
-    // demand spikes heal themselves instead of surfacing as an error.
-    if ((code === 503 || code === 500) && transient < 3) {
-      transient++;
-      Utilities.sleep(2000 * transient); // 2s, 4s, 6s
-      continue;
+    // Retry a temporary server problem twice on the same model, then switch.
+    if (code === 503 || code === 500) {
+      transientByModel[model] = (transientByModel[model] || 0) + 1;
+      if (transientByModel[model] <= 2) {
+        Utilities.sleep(1500 * transientByModel[model]);
+        continue;
+      }
+      lastError = new Error("Gemini is temporarily overloaded (high demand). Give it a minute and try again.");
+      lastError.code = "GEMINI_OVERLOADED";
+      lastError.model = model;
+      lastError.httpStatus = code;
+      const nextAfterOverload = nextGeminiModel(triedModels);
+      if (nextAfterOverload) {
+        model = nextAfterOverload;
+        continue;
+      }
+      throw lastError;
     }
 
     if (code === 429) {
-      throw geminiQuotaError(res.getContentText());
-    }
-
-    if (code === 503 || code === 500) {
-      throw new Error("Gemini is temporarily overloaded (high demand). Give it a minute and try again.");
+      lastError = geminiQuotaError(res.getContentText());
+      lastError.model = model;
+      const nextAfterQuota = nextGeminiModel(triedModels);
+      if (nextAfterQuota) {
+        model = nextAfterQuota;
+        continue;
+      }
+      throw lastError;
     }
 
     if (code === 404 && model) {
-      // Model retired/unavailable for this key — forget it and re-pick.
-      const props = PropertiesService.getScriptProperties();
-      props.deleteProperty("pickedModel");
-      props.deleteProperty("pickedModelVersion");
-      const next = pickModel(model);
-      if (next && next !== model) {
-        model = next;
+      lastError = new Error("Gemini model '" + model + "' is no longer available for this key.");
+      lastError.code = "GEMINI_MODEL_UNAVAILABLE";
+      lastError.model = model;
+      lastError.httpStatus = code;
+      const nextAfterMissing = nextGeminiModel(triedModels);
+      if (nextAfterMissing) {
+        model = nextAfterMissing;
         continue;
       }
+      throw lastError;
     }
 
-    throw new Error(
+    lastError = new Error(
       "Gemini HTTP " + code + " on model '" + model + "': " + res.getContentText().slice(0, 200)
     );
+    lastError.code = code === 400 || code === 403 ? "GEMINI_CONFIGURATION" : "GEMINI_HTTP_ERROR";
+    lastError.model = model;
+    lastError.httpStatus = code;
+    throw lastError;
   }
-  throw new Error("Gemini kept failing after several retries — likely temporary. Try again shortly.");
+  throw lastError || new Error("Gemini kept failing after several retries — likely temporary. Try again shortly.");
+}
+
+function isCompleteSummaryPayload(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (typeof value.headline !== "string") return false;
+  return bucketKeys().every(function (key) { return Array.isArray(value[key]); });
+}
+
+function nextGeminiModel(triedModels) {
+  if (Object.keys(triedModels).length >= CONFIG.GEMINI_MODEL_ATTEMPTS) return "";
+  clearPickedModel();
+  try {
+    return pickModel(Object.keys(triedModels));
+  } catch (_) {
+    return "";
+  }
+}
+
+function clearPickedModel() {
+  const props = PropertiesService.getScriptProperties();
+  props.deleteProperty("pickedModel");
+  props.deleteProperty("pickedModelVersion");
+}
+
+function safeGeminiDiagnostic(err) {
+  const raw = String((err && err.message) || err || "Gemini failed");
+  let message = raw.replace(/([?&]key=)[^&\s]+/gi, "$1[redacted]");
+  if (CONFIG.GEMINI_API_KEY && CONFIG.GEMINI_API_KEY !== "PASTE_YOUR_GEMINI_KEY_HERE") {
+    message = message.split(CONFIG.GEMINI_API_KEY).join("[redacted]");
+  }
+  return {
+    code: String((err && err.code) || "GEMINI_ERROR").slice(0, 60),
+    message: message.slice(0, 240),
+    model: String((err && err.model) || "").slice(0, 80),
+    httpStatus: Number((err && err.httpStatus) || 0),
+    finishReason: String((err && err.finishReason) || "").slice(0, 40),
+    retryDelay: String((err && err.retryDelay) || "").slice(0, 40),
+  };
 }
 
 function geminiQuotaError(responseText) {
@@ -447,7 +580,7 @@ function geminiQuotaError(responseText) {
     data = JSON.parse(responseText || "{}");
   } catch (_) {}
   const details = (((data || {}).error || {}).details || []);
-  const detailText = JSON.stringify(details);
+  const detailText = JSON.stringify(data || {});
   const isDaily = /per.?day|requestsperday|inputtokensperday|rpd/i.test(detailText);
   const retryInfo = details.find(function (detail) {
     return detail && (detail.retryDelay || /RetryInfo/i.test(String(detail["@type"] || "")));
@@ -458,6 +591,7 @@ function geminiQuotaError(responseText) {
       : "Gemini reached a project rate or token limit. Your emails can still load without AI sorting."
   );
   err.code = "GEMINI_QUOTA";
+  err.httpStatus = 429;
   err.quotaKind = isDaily ? "daily" : "rate";
   err.retryDelay = retryInfo && retryInfo.retryDelay ? String(retryInfo.retryDelay) : "";
   return err;
@@ -486,12 +620,16 @@ function safeParseJson(text) {
 }
 
 // Ask Google which models THIS key can use, pick the best per MODEL_PREFERENCES.
-// `exclude` is a model id to skip (e.g. one that just 404'd). Result is cached.
+// `exclude` may be one model id or an array of ids to skip. Result is cached.
 function pickModel(exclude) {
+  const excluded = {};
+  (Array.isArray(exclude) ? exclude : [exclude]).forEach(function (id) {
+    if (id) excluded[id] = true;
+  });
   const props = PropertiesService.getScriptProperties();
   const cached = props.getProperty("pickedModel");
   const cachedVersion = props.getProperty("pickedModelVersion");
-  if (cached && cachedVersion === CONFIG.MODEL_SELECTION_VERSION && cached !== exclude) return cached;
+  if (cached && cachedVersion === CONFIG.MODEL_SELECTION_VERSION && !excluded[cached]) return cached;
 
   const res = UrlFetchApp.fetch(
     "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=" + CONFIG.GEMINI_API_KEY,
@@ -508,9 +646,9 @@ function pickModel(exclude) {
   const models = (JSON.parse(res.getContentText()).models || [])
     .filter((m) => (m.supportedGenerationMethods || []).indexOf("generateContent") !== -1)
     .map((m) => String(m.name).replace(/^models\//, ""))
-    .filter((id) => id !== exclude);
+    .filter((id) => !excluded[id]);
 
-  let chosen = CONFIG.MODEL_PREFERENCES.filter((id) => id !== exclude).find((id) => models.indexOf(id) !== -1);
+  let chosen = CONFIG.MODEL_PREFERENCES.filter((id) => !excluded[id]).find((id) => models.indexOf(id) !== -1);
   if (!chosen) chosen = models.find((id) => /flash/i.test(id)); // any flash
   if (!chosen) chosen = models[0]; // last resort: anything usable
   if (!chosen) throw new Error("No Gemini model on this key supports generateContent.");
@@ -597,7 +735,7 @@ function geminiJson(prompt, maxTokens) {
       contentType: "application/json",
       payload: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json", temperature: 0.1, maxOutputTokens: maxTokens || 4096 },
+        generationConfig: { responseMimeType: "application/json", maxOutputTokens: maxTokens || 4096 },
       }),
       muteHttpExceptions: true,
     });
@@ -784,6 +922,90 @@ function isForwardedMarker(line) {
     /^begin forwarded message:$/i.test(marker);
 }
 
+function withoutReplyQuotePrefix(line) {
+  return String(line || "").replace(/^\s*(?:>\s*)*/, "").trim();
+}
+
+function replyHistoryStart(lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const first = withoutReplyQuotePrefix(lines[i]);
+
+    // Gmail can wrap its quote header across several plain-text lines:
+    // On Mon., Jul 13, 2026 at 11:42 AM Courtney Butler
+    // <courtney@example.com>
+    // wrote:
+    if (/^On\s+\S/i.test(first)) {
+      const headerParts = [];
+      for (let j = i; j < Math.min(lines.length, i + 5); j++) {
+        const part = withoutReplyQuotePrefix(lines[j]);
+        if (part) headerParts.push(part);
+        if (/\bwrote:\s*$/i.test(part)) {
+          const header = headerParts.join(" ");
+          // Gmail quote headers include the original sender's email address.
+          // Requiring it avoids cutting off ordinary prose such as "On Monday
+          // we wrote: the new process...".
+          if (/\S+@\S+/.test(header)) return i;
+          break;
+        }
+      }
+    }
+
+    // Outlook-style reply history has a compact From/Sent/To/Subject header.
+    // Explicit forwarded-message blocks are protected by cleanThreadBody.
+    if (/^From:\s*\S/i.test(first)) {
+      const nearby = lines.slice(i, i + 9).map(withoutReplyQuotePrefix);
+      const hasSent = nearby.some(function (line) { return /^Sent:\s*\S/i.test(line); });
+      const hasTo = nearby.some(function (line) { return /^To:\s*\S/i.test(line); });
+      const hasSubject = nearby.some(function (line) { return /^Subject:\s*\S/i.test(line); });
+      if (hasSent && hasTo && hasSubject) return i;
+    }
+  }
+  return -1;
+}
+
+function signatureStart(lines) {
+  const signoff = /^(?:thanks|thank you|many thanks|regards|kind regards|best|best regards|warm regards|cheers|sincerely)[,!]?$/i;
+  const mobile = /^sent from my (?:iphone|ipad|android|samsung|mobile)|^sent from outlook for/i;
+  const disclaimer = /^(?:confidentiality notice|this e-?mail and any attachments)/i;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = String(lines[i] || "").trim();
+    const before = lines.slice(0, i).filter(function (value) { return String(value || "").trim(); });
+    if (before.length < 1) continue;
+
+    const after = lines.slice(i + 1).filter(function (value) { return String(value || "").trim(); });
+    if (after.length > 14) continue;
+
+    if (/^(?:--|__+)$/.test(line) || mobile.test(line) || disclaimer.test(line)) return i;
+    if (!signoff.test(line) || !after.length) continue;
+
+    const firstAfter = String(after[0] || "").trim();
+    const shortNameLike = firstAfter.length <= 60 &&
+      firstAfter.split(/\s+/).length <= 5 &&
+      !/[.!?]$/.test(firstAfter);
+    const hasSignatureEvidence = after.some(function (value) {
+      const part = String(value || "").trim();
+      const digits = (part.match(/\d/g) || []).length;
+      return /@|https?:\/\/|www\.|\[image:|(?:manager|leader|director|coordinator|officer|team|department|pty\.?\s*ltd|limited|inc\.?|llc)\b/i.test(part) ||
+        digits >= 7;
+    });
+    if (hasSignatureEvidence || (before.length >= 2 && after.length <= 3 && shortNameLike)) return i;
+  }
+  return -1;
+}
+
+function stripOuterSignature(lines) {
+  const forwardedAt = lines.findIndex(isForwardedMarker);
+  const sectionEnd = forwardedAt >= 0 ? forwardedAt : lines.length;
+  const intro = lines.slice(0, sectionEnd);
+  const signatureAt = signatureStart(intro);
+  if (signatureAt < 0) return lines;
+
+  const withoutSignature = intro.slice(0, signatureAt);
+  if (forwardedAt < 0) return withoutSignature;
+  return withoutSignature.concat([""], lines.slice(forwardedAt));
+}
+
 function cleanThreadBody(text) {
   const normalized = String(text || "").replace(/\r\n?/g, "\n").replace(/\u00a0/g, " ");
   const lines = normalized.split("\n");
@@ -794,11 +1016,13 @@ function cleanThreadBody(text) {
   // duplicated quoted history only when this message is not explicitly forwarding
   // another email; forwarded headers, quoted lines and URLs are useful content.
   if (!hasForwardedMessage) {
-    const replyHistoryAt = lines.findIndex(function (line) {
-      return /^\s*(?:>\s*)*On .+ wrote:\s*$/i.test(line);
-    });
+    const replyHistoryAt = replyHistoryStart(lines);
     if (replyHistoryAt >= 0) kept = lines.slice(0, replyHistoryAt);
   }
+
+  // Remove only the outer message's signature. For forwarded mail, the
+  // forwarded block remains untouched because its sender details are content.
+  kept = stripOuterSignature(kept);
 
   return kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }

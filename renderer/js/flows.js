@@ -107,7 +107,7 @@
   function onCardChange(item, evt) {
     const type = evt && evt.type;
     if (type === "moved") {
-      // Rescue from cleanedUp into a real bucket (in-app only).
+      // Restore from cleanedUp into a real bucket (in-app only).
       const to = evt.to;
       const arr = summary.cleanedUp || [];
       const idx = arr.indexOf(item);
@@ -365,6 +365,18 @@
     const items = key === "cleanedUp" ? (summary && summary[key]) || [] : bucketItems(key);
     if (!items.length) {
       UI.addBotMsg(`${T.BUCKETS[key].badge} — nothing left here. 🎉`);
+    } else if (key === "whatsNew" || key === "importantUrgent") {
+      const deck = openFlashcardDeck(key, items);
+      UI.setChips([{
+        label: "← Back to summary",
+        echo: "Back",
+        onClick: () => {
+          const row = deck.closest(".msg-row");
+          if (row) row.remove();
+          overview();
+        },
+      }]);
+      return;
     } else {
       UI.addBotMsg(`${T.BUCKETS[key].badge} — ${items.length} item${items.length === 1 ? "" : "s"}:`);
       items.forEach((item) => {
@@ -373,7 +385,125 @@
       });
     }
     // Bucket view shows only "Back to summary" — "I'm done" lives on the summary page.
-    UI.setChips([{ label: "← Back to summary", echo: "Back", onClick: () => overview() }]);
+    const chips = [];
+    if (key === "cleanedUp" && bucketCount("cleanedUp")) {
+      chips.push({
+        label: "✓ Clear all",
+        echo: "Clear all",
+        onClick: () => clearCleanedUp(),
+      });
+    }
+    chips.push({ label: "← Back to summary", echo: "Back", onClick: () => overview() });
+    UI.setChips(chips);
+  }
+
+  function openFlashcardDeck(key, items) {
+    const bucket = T.BUCKETS[key];
+    UI.addBotMsg(
+      `${bucket.badge} — ${items.length} email${items.length === 1 ? "" : "s"}. Let's review one at a time.`
+    );
+
+    const order = items.slice();
+    const deck = document.createElement("section");
+    deck.className = "flashcard-deck";
+    UI.addElement(deck);
+    let cursor = 0;
+
+    function nextUnhandledIndex(start) {
+      for (let offset = 0; offset < order.length; offset++) {
+        const index = (start + offset) % order.length;
+        if (!order[index]._handled) return index;
+      }
+      return -1;
+    }
+
+    function renderCurrent() {
+      deck.innerHTML = "";
+      const remaining = bucketItems(key);
+      const nextIndex = nextUnhandledIndex(cursor);
+      if (!remaining.length || nextIndex === -1) {
+        const done = document.createElement("div");
+        done.className = "flashcard-empty";
+        done.textContent = `That's every ${bucket.chip.replace(/^[^ ]+ /, "").toLowerCase()} email handled. ✓`;
+        deck.appendChild(done);
+        UI.scrollToEnd();
+        return;
+      }
+
+      cursor = nextIndex;
+      const item = order[cursor];
+      const progress = document.createElement("div");
+      progress.className = "flashcard-progress";
+      progress.textContent = `Card ${cursor + 1} of ${order.length} · ${remaining.length} remaining`;
+
+      const nav = document.createElement("div");
+      nav.className = "flashcard-nav";
+
+      const advance = () => {
+        cursor = (cursor + 1) % order.length;
+        renderCurrent();
+      };
+
+      const onDeckChange = (changedItem, event) => {
+        onCardChange(changedItem, event);
+        if (event && event.type === "acted") {
+          nav.innerHTML = "";
+          const next = document.createElement("button");
+          next.className = "default flashcard-next";
+          next.textContent = bucketItems(key).length ? "Next email →" : "Finish deck →";
+          next.onclick = advance;
+          nav.appendChild(next);
+        } else if (event && event.type === "undone") {
+          renderCurrent();
+        }
+      };
+
+      const card = T.makeCard(key, item, onDeckChange, {
+        onDefer: () => {
+          if (remaining.length === 1) {
+            deck.innerHTML = '<div class="flashcard-empty">Saved for later. It will still be here next time. ✓</div>';
+            UI.scrollToEnd();
+            return;
+          }
+          advance();
+        },
+      });
+      card.classList.add("flashcard-current");
+
+      deck.appendChild(progress);
+      deck.appendChild(card);
+      deck.appendChild(nav);
+      UI.scrollToEnd();
+    }
+
+    renderCurrent();
+    return deck;
+  }
+
+  async function clearCleanedUp() {
+    const pending = bucketItems("cleanedUp").filter((item) => item && item.id);
+    if (!pending.length) return overview();
+
+    UI.setBuddyStatus("Clearing reviewed mail…");
+    const r = await window.retro.action.markRead(pending.map((item) => item.id));
+    UI.setBuddyStatus("Online — ready to help");
+    const reportedDone = Number(r && r.data && r.data.done);
+    const partial = Number.isFinite(reportedDone) && reportedDone < pending.length;
+    if (!r || !r.ok || partial) {
+      UI.addBotMsg("I couldn't clear those messages: " + ((r && r.message) || "please try again."));
+      return overview();
+    }
+
+    pending.forEach((item) => {
+      if (!item._handled) {
+        item._handled = true;
+        onCardChange(item, { type: "acted" });
+      }
+    });
+    UI.addBotMsg(
+      `Cleaned up is clear — ${pending.length} email${pending.length === 1 ? "" : "s"} marked read. ✓`
+    );
+    overview();
   }
 
   function finish() {

@@ -66,6 +66,15 @@
       "subject": "Your weekly workspace digest",
       "age": "12h",
       "why": "Routine product digest — no action, just FYI."
+    },
+    {
+      "id": "m-new-2",
+      "link": "https://mail.google.com/mail/u/0/#all/m-new-2",
+      "from": "Google AI Studio <no-reply@google.com>",
+      "subject": "New workspace collaboration features",
+      "topic": "Workspace collaboration update",
+      "age": "1d",
+      "why": "Product update for review when you have time."
     }
   ],
   "canUnsubscribe": [
@@ -126,6 +135,15 @@
       "subject": "Accepted: Weekly AU Ops sync",
       "age": "1d",
       "reason": "Auto-notification, already actioned — safe to ignore."
+    },
+    {
+      "id": "m-clean-2",
+      "link": "https://mail.google.com/mail/u/0/#all/m-clean-2",
+      "from": "Forms <forms-receipts@google.com>",
+      "subject": "Response recorded: Installation checklist",
+      "topic": "Installation checklist receipt",
+      "age": "2d",
+      "reason": "Confirmation receipt with no follow-up needed."
     }
   ]
 }

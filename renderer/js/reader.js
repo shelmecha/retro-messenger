@@ -38,6 +38,32 @@
     const source = String(value || "No text content — open in Gmail to view.").replace(/\r\n?/g, "\n");
     const lines = source.split("\n");
     const withoutQuoteMarker = (line) => line.replace(/^\s*(?:>\s*)+/, "");
+    const renderQuotedSegments = (segmentLines) => {
+      const parts = [];
+      let quoted = null;
+      let buffer = [];
+      const flush = () => {
+        if (!buffer.length) return;
+        const text = buffer.join("\n").replace(/^\n+|\n+$/g, "");
+        if (text) {
+          parts.push(
+            quoted
+              ? `<blockquote class="mail-quoted">${esc(text)}</blockquote>`
+              : `<div class="mail-body-text">${esc(text)}</div>`
+          );
+        }
+        buffer = [];
+      };
+
+      segmentLines.forEach((line) => {
+        const isQuoted = /^\s*>/.test(line);
+        if (quoted !== null && quoted !== isQuoted) flush();
+        quoted = isQuoted;
+        buffer.push(isQuoted ? withoutQuoteMarker(line) : line);
+      });
+      flush();
+      return parts.join("");
+    };
     const forwardedAt = lines.findIndex((line) => {
       const marker = withoutQuoteMarker(line).trim();
       return (
@@ -46,12 +72,11 @@
       );
     });
 
-    if (forwardedAt < 0) return `<div class="mail-body-text">${esc(source)}</div>`;
+    if (forwardedAt < 0) return renderQuotedSegments(lines);
 
-    const normalText = lines.slice(0, forwardedAt).join("\n").replace(/\n+$/, "");
     const forwardedText = lines.slice(forwardedAt).map(withoutQuoteMarker).join("\n");
     return (
-      (normalText ? `<div class="mail-body-text">${esc(normalText)}</div>` : "") +
+      renderQuotedSegments(lines.slice(0, forwardedAt)) +
       `<blockquote class="mail-forwarded">${esc(forwardedText)}</blockquote>`
     );
   }
