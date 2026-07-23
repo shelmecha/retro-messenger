@@ -10,20 +10,21 @@
  * into the app's Settings. Full steps in SETUP-APPSSCRIPT.md.
  */
 
-const BACKEND_VERSION = "0.7.8.2";
+const BACKEND_VERSION = "0.7.8.3";
 
 const CONFIG = {
   GEMINI_API_KEY: "PASTE_YOUR_GEMINI_KEY_HERE", // from https://aistudio.google.com/apikey
   // No hardcoded model — the script asks Google which models YOUR key can use
   // and picks the best available, in this order of preference:
   MODEL_PREFERENCES: [
-    "gemini-3.1-flash-lite",
     "gemini-2.5-flash-lite",
-    "gemini-3.5-flash",
+    "gemini-3.1-flash-lite",
     "gemini-2.5-flash",
+    "gemini-3.5-flash",
   ],
-  MODEL_SELECTION_VERSION: "structured-json-v2",
+  MODEL_SELECTION_VERSION: "compact-triage-v3",
   GEMINI_MODEL_ATTEMPTS: 3,
+  GEMINI_BATCH_SIZE: 10,
   INBOX_QUERY: "in:inbox newer_than:3d",
   INBOX_LIMIT: 20,
   STARRED_QUERY: "is:starred older_than:5d",
@@ -48,49 +49,41 @@ const EMPTY_SUMMARY = {
   cleanedUp: [],
 };
 
-// Gemini's structured-output contract. Requiring every bucket makes malformed
-// or incomplete model output far less likely than prompt-only JSON instructions.
+const TRIAGE_BUCKETS = [
+  "importantUrgent",
+  "needsFollowUp",
+  "starredOverdue",
+  "canUnsubscribe",
+  "keepSubscriptions",
+  "whatsNew",
+  "cleanedUp",
+];
+
+// Compact structured output: exactly one classification object per email.
+// The previous seven-array response encouraged duplication and could exhaust
+// the output allowance before Gemini closed the JSON for a 30-email scan.
 const SUMMARY_RESPONSE_SCHEMA = {
   type: "OBJECT",
   properties: {
     headline: { type: "STRING", description: "One warm sentence about what needs attention." },
-    importantUrgent: summaryBucketSchema(["why", "action", "suggestedReply"]),
-    needsFollowUp: summaryBucketSchema(["suggestedReply"]),
-    starredOverdue: summaryBucketSchema(["context", "suggestedReply"]),
-    canUnsubscribe: summaryBucketSchema(["reason"]),
-    keepSubscriptions: summaryBucketSchema(["why"]),
-    whatsNew: summaryBucketSchema(["why"]),
-    cleanedUp: summaryBucketSchema(["reason"]),
-  },
-  required: [
-    "headline",
-    "importantUrgent",
-    "needsFollowUp",
-    "starredOverdue",
-    "canUnsubscribe",
-    "keepSubscriptions",
-    "whatsNew",
-    "cleanedUp",
-  ],
-};
-
-function summaryBucketSchema(extraFields) {
-  const properties = {
-    id: { type: "STRING", description: "The Gmail message id supplied in the prompt." },
-    topic: { type: "STRING", description: "A plain 3 to 8 word topic, at most 60 characters." },
-  };
-  (extraFields || []).forEach(function (field) {
-    properties[field] = { type: "STRING", description: "Brief text, at most 200 characters." };
-  });
-  return {
-    type: "ARRAY",
     items: {
-      type: "OBJECT",
-      properties: properties,
-      required: ["id", "topic"],
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          id: { type: "STRING", description: "The Gmail message id supplied in the prompt." },
+          bucket: { type: "STRING", enum: TRIAGE_BUCKETS, description: "Exactly one triage bucket." },
+          topic: { type: "STRING", description: "Plain 3 to 8 word topic, at most 60 characters." },
+          why: { type: "STRING", description: "Brief reason or context, at most 120 characters." },
+          action: { type: "STRING", description: "Brief next action, at most 120 characters." },
+          suggestedReply: { type: "STRING", description: "Brief optional reply, at most 160 characters." },
+        },
+        required: ["id", "bucket", "topic"],
+      },
     },
-  };
-}
+  },
+  required: ["headline", "items"],
+};
 
 /* ============================ ROUTING ============================ */
 
@@ -418,20 +411,39 @@ function parseUnsub(m) {
 /* ============================ GEMINI ============================ */
 
 function geminiSummarize(items) {
+  try {
+    return geminiSummarizeRequest(items);
+  } catch (err) {
+    const canRetryInBatches =
+      items.length > CONFIG.GEMINI_BATCH_SIZE &&
+      err &&
+      (err.code === "GEMINI_TRUNCATED" || err.code === "GEMINI_MALFORMED");
+    if (!canRetryInBatches) throw err;
+
+    Logger.log(
+      "Gemini full-inbox JSON was incomplete; retrying in batches of " +
+      CONFIG.GEMINI_BATCH_SIZE + "."
+    );
+    clearPickedModel();
+    const combined = { headline: "", items: [] };
+    for (let start = 0; start < items.length; start += CONFIG.GEMINI_BATCH_SIZE) {
+      const part = geminiSummarizeRequest(items.slice(start, start + CONFIG.GEMINI_BATCH_SIZE));
+      if (!combined.headline && part.headline) combined.headline = part.headline;
+      combined.items = combined.items.concat(part.items || []);
+    }
+    if (!combined.headline) combined.headline = "Your inbox is sorted and ready to review.";
+    return combined;
+  }
+}
+
+function geminiSummarizeRequest(items) {
   const payload = {
     contents: [{ parts: [{ text: buildPrompt(items) }] }],
-    // Schema enforcement prevents the prompt-only JSON failures seen in the
-    // Apps Script execution log. The larger budget also protects 30-email runs
-    // from being cut off before the closing braces arrive.
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: SUMMARY_RESPONSE_SCHEMA,
-      maxOutputTokens: 16384,
-    },
   };
 
   const triedModels = {};
   const transientByModel = {};
+  const attempts = [];
   let model = pickModel([]);
   let lastError = null;
 
@@ -443,13 +455,18 @@ function geminiSummarize(items) {
       ":generateContent?key=" +
       CONFIG.GEMINI_API_KEY;
 
+    const requestPayload = Object.assign({}, payload, {
+      generationConfig: triageGenerationConfig(model),
+    });
     const res = UrlFetchApp.fetch(url, {
       method: "post",
       contentType: "application/json",
-      payload: JSON.stringify(payload),
+      payload: JSON.stringify(requestPayload),
       muteHttpExceptions: true,
     });
     const code = res.getResponseCode();
+    const attemptInfo = { model: model, httpStatus: code };
+    attempts.push(attemptInfo);
 
     if (code === 200) {
       let data = {};
@@ -461,9 +478,11 @@ function geminiSummarize(items) {
         .map(function (p) { return p.text || ""; })
         .join("") || "";
       const parsed = safeParseJson(text);
-      if (isCompleteSummaryPayload(parsed)) return parsed;
+      if (isCompleteSummaryPayload(parsed, items)) return parsed;
 
       const finishReason = String(candidate.finishReason || "UNKNOWN");
+      attemptInfo.finishReason = finishReason;
+      attemptInfo.responseChars = text.length;
       lastError = new Error(
         finishReason === "MAX_TOKENS"
           ? "Gemini's JSON was cut off before it finished."
@@ -474,12 +493,16 @@ function geminiSummarize(items) {
       lastError.finishReason = finishReason;
       lastError.responseChars = text.length;
 
+      // A different model still has to emit the same large response. Split the
+      // workload immediately instead of spending more calls on another model.
+      if (finishReason === "MAX_TOKENS") throw withGeminiAttempts(lastError, attempts);
+
       const nextAfterJson = nextGeminiModel(triedModels);
       if (nextAfterJson) {
         model = nextAfterJson;
         continue;
       }
-      throw lastError;
+      throw withGeminiAttempts(lastError, attempts);
     }
 
     // Retry a temporary server problem twice on the same model, then switch.
@@ -498,7 +521,7 @@ function geminiSummarize(items) {
         model = nextAfterOverload;
         continue;
       }
-      throw lastError;
+      throw withGeminiAttempts(lastError, attempts);
     }
 
     if (code === 429) {
@@ -509,7 +532,7 @@ function geminiSummarize(items) {
         model = nextAfterQuota;
         continue;
       }
-      throw lastError;
+      throw withGeminiAttempts(lastError, attempts);
     }
 
     if (code === 404 && model) {
@@ -522,7 +545,7 @@ function geminiSummarize(items) {
         model = nextAfterMissing;
         continue;
       }
-      throw lastError;
+      throw withGeminiAttempts(lastError, attempts);
     }
 
     lastError = new Error(
@@ -531,15 +554,51 @@ function geminiSummarize(items) {
     lastError.code = code === 400 || code === 403 ? "GEMINI_CONFIGURATION" : "GEMINI_HTTP_ERROR";
     lastError.model = model;
     lastError.httpStatus = code;
-    throw lastError;
+    throw withGeminiAttempts(lastError, attempts);
   }
-  throw lastError || new Error("Gemini kept failing after several retries — likely temporary. Try again shortly.");
+  throw withGeminiAttempts(
+    lastError || new Error("Gemini kept failing after several retries — likely temporary. Try again shortly."),
+    attempts
+  );
 }
 
-function isCompleteSummaryPayload(value) {
+function isCompleteSummaryPayload(value, sourceItems) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   if (typeof value.headline !== "string") return false;
-  return bucketKeys().every(function (key) { return Array.isArray(value[key]); });
+  if (!Array.isArray(value.items)) return false;
+  if (value.items.length !== (sourceItems || []).length) return false;
+  const expected = {};
+  const seen = {};
+  (sourceItems || []).forEach(function (item) { expected[item.id] = true; });
+  return value.items.every(function (item) {
+    if (!item || !expected[item.id] || seen[item.id]) return false;
+    seen[item.id] = true;
+    return TRIAGE_BUCKETS.indexOf(item.bucket) !== -1 && !!item.topic;
+  });
+}
+
+function triageGenerationConfig(model) {
+  const config = {
+    responseMimeType: "application/json",
+    responseSchema: SUMMARY_RESPONSE_SCHEMA,
+    maxOutputTokens: 16384,
+  };
+  // Inbox classification is simple. Gemini 2.5 can run without thinking;
+  // Gemini 3 Flash cannot fully disable it, so use its lowest stable level.
+  config.thinkingConfig = thinkingConfigForModel(model);
+  return config;
+}
+
+function thinkingConfigForModel(model) {
+  return /^gemini-3(?:\.|-|$)/i.test(String(model || ""))
+    ? { thinkingLevel: "low" }
+    : { thinkingBudget: 0 };
+}
+
+function withGeminiAttempts(err, attempts) {
+  const out = err || new Error("Gemini failed.");
+  out.attempts = (attempts || []).slice(0, 8);
+  return out;
 }
 
 function nextGeminiModel(triedModels) {
@@ -571,6 +630,14 @@ function safeGeminiDiagnostic(err) {
     httpStatus: Number((err && err.httpStatus) || 0),
     finishReason: String((err && err.finishReason) || "").slice(0, 40),
     retryDelay: String((err && err.retryDelay) || "").slice(0, 40),
+    attempts: ((err && err.attempts) || []).slice(0, 8).map(function (attempt) {
+      return {
+        model: String((attempt && attempt.model) || "").slice(0, 80),
+        httpStatus: Number((attempt && attempt.httpStatus) || 0),
+        finishReason: String((attempt && attempt.finishReason) || "").slice(0, 40),
+        responseChars: Number((attempt && attempt.responseChars) || 0),
+      };
+    }),
   };
 }
 
@@ -694,16 +761,11 @@ function buildPrompt(items) {
     "Return ONLY strict JSON with this exact shape (no markdown, no fences):",
     "{",
     '  "headline": "one warm human sentence summarizing what actually needs attention",',
-    '  "importantUrgent": [{"id":"","topic":"","why":"","action":"","suggestedReply":""}],',
-    '  "needsFollowUp":   [{"id":"","topic":"","suggestedReply":""}],',
-    '  "starredOverdue":  [{"id":"","topic":"","context":"","suggestedReply":""}],',
-    '  "canUnsubscribe":  [{"id":"","topic":"","reason":""}],',
-    '  "keepSubscriptions":[{"id":"","topic":"","why":""}],',
-    '  "whatsNew":        [{"id":"","topic":"","why":""}],',
-    '  "cleanedUp":       [{"id":"","topic":"","reason":""}]',
+    '  "items": [{"id":"","bucket":"importantUrgent","topic":"","why":"","action":"","suggestedReply":""}]',
     "}",
     "Rules:",
-    "- Every email goes in exactly ONE bucket. Use the email's id verbatim.",
+    "- Return exactly one items[] object for every input email: no omissions and no duplicates.",
+    "- Use the email's id verbatim and choose exactly one bucket from: " + TRIAGE_BUCKETS.join(", ") + ".",
     "- starredOverdue: only emails where starred=true.",
     "- canUnsubscribe: promotional/newsletter noise, prefer ones where hasUnsub=true.",
     "- keepSubscriptions: newsletters that seem genuinely useful.",
@@ -711,7 +773,8 @@ function buildPrompt(items) {
     "- topic: a plain 3–8 word description of what the message is actually about, not the original subject; maximum 60 characters.",
     "- suggestedReply: a short, natural draft in the user's voice (only where it helps).",
     tone ? "- Match this learned writing-style profile for suggestedReply: " + tone : "- Keep suggested replies warm, direct, and concise.",
-    "- Keep every text field under 200 characters. Do not invent emails not listed.",
+    "- Keep why/action under 120 characters and suggestedReply under 160 characters. Use an empty string when a field is unnecessary.",
+    "- Do not invent emails or add any objects not present in the input.",
     "",
     "EMAILS:",
     JSON.stringify(slim),
@@ -735,7 +798,11 @@ function geminiJson(prompt, maxTokens) {
       contentType: "application/json",
       payload: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json", maxOutputTokens: maxTokens || 4096 },
+        generationConfig: {
+          responseMimeType: "application/json",
+          maxOutputTokens: maxTokens || 4096,
+          thinkingConfig: thinkingConfigForModel(model),
+        },
       }),
       muteHttpExceptions: true,
     });
@@ -756,8 +823,29 @@ function geminiJson(prompt, maxTokens) {
   throw new Error("Gemini could not prepare this content. Try again shortly.");
 }
 
+function expandCompactSummary(parsed) {
+  if (!parsed || !Array.isArray(parsed.items)) return parsed || {};
+  const expanded = { headline: parsed.headline || "" };
+  TRIAGE_BUCKETS.forEach(function (key) { expanded[key] = []; });
+  parsed.items.forEach(function (item) {
+    if (!item || TRIAGE_BUCKETS.indexOf(item.bucket) === -1) return;
+    const why = item.why || "";
+    expanded[item.bucket].push({
+      id: item.id || "",
+      topic: item.topic || "",
+      why: why,
+      action: item.action || "",
+      reason: why,
+      context: why,
+      suggestedReply: item.suggestedReply || "",
+    });
+  });
+  return expanded;
+}
+
 // Merge Gemini's classification back with our trusted original fields (esp. URLs).
 function mergeBuckets(parsed, items) {
+  parsed = expandCompactSummary(parsed);
   const byId = {};
   items.forEach((i) => (byId[i.id] = i));
   const out = Object.assign({}, EMPTY_SUMMARY);
