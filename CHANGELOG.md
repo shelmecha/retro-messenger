@@ -2,6 +2,10 @@
 
 All notable changes, newest first. Version shows in the title bar and Settings.
 
+## v0.7.10
+- **Uninstall from the Start Menu** — an “Uninstall Retro Messenger” entry now sits next to the app shortcut. The uninstaller always shipped inside the install folder and in Settings → Apps, but with nothing in the Start Menu it looked like it was missing.
+- **Setup guide rewritten for Apps Script** — SETUP.md now documents the Google Apps Script backend as the main path, adds an Uninstalling section, and keeps the old n8n instructions in a collapsed legacy note.
+
 ## v0.7.9
 - **Updater delivery fix** — the desktop version is now newer than every earlier v0.7.8 build, so Restart & update can actually install the corrected interface.
 - **Urgent flashcards delivered** — Important / Urgent now shows one focused card at a time with Do later and Next email controls.
