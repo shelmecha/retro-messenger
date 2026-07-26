@@ -52,7 +52,8 @@
       "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Retro Messenger"
+      "shortcutName": "Retro Messenger",
+      "include": "assets/installer.nsh"
     }
   }
 }

@@ -5,8 +5,8 @@ const path = require("path");
 const { app } = require("electron");
 
 const DEFAULTS = {
-  n8nBaseUrl: "",
-  mockMode: true, // n8n isn't live yet — demo mode on by default
+  n8nBaseUrl: "", // Apps Script /exec URL (or a legacy n8n base URL); see SETUP.md
+  mockMode: true, // no backend URL on a fresh install — demo mode on by default
   autoLaunch: false,
   sounds: false,
 };
