@@ -1,78 +1,109 @@
-# Retro Messenger — going live (n8n backend setup)
+# Retro Messenger — going live
 
-Retro Messenger is a front-end. Its brain is your **n8n Cloud** workflow (the same one the
-`inbox-summary` Chrome extension uses). Until that's live, the app runs in **Demo mode** with
-sample data. This checklist stands up the backend and connects the app. ~20–30 min, mostly
-clicking. No coding.
+Retro Messenger is a front-end. Its brain is a **Google Apps Script web app** running in your
+own Google account. Until that's connected, the app runs in **Demo mode** with sample data.
 
-The workflow itself is already built — you **import** it, you don't create it.
+**Full step-by-step:** [`backend/apps-script/SETUP-APPSSCRIPT.md`](backend/apps-script/SETUP-APPSSCRIPT.md)
+— ~10 min, no coding. You paste one file and deploy.
 
-> Workflow file to import:
-> `C:\Users\Shelvi\OneDrive - De La Salle University-Dasmariñas\Desktop\Claude Code\inbox-summary\workflow\inbox-summary.json`
+The checklist below is the short version.
 
 ---
 
-## 1. Accounts + keys (5 min)
-- [ ] **n8n Cloud** account — https://n8n.io (free trial is fine). Note your URL:
-      `https://<workspace>.app.n8n.cloud`
-- [ ] **Gemini API key** (free) — https://aistudio.google.com/apikey → copy the `AIza...` key
+## 1. Gemini API key (2 min)
+- [ ] https://aistudio.google.com/apikey → **Create API key** → copy the `AIza...` string
 
-## 2. Import the workflow (2 min)
-- [ ] n8n → **Workflows → Add workflow → ⋯ (top-right) → Import from File**
-- [ ] Choose `inbox-summary.json` (path above)
+## 2. Create + paste the script (3 min)
+- [ ] https://script.google.com → **New project**, delete the stub `myFunction`
+- [ ] Copy **all** of `backend/apps-script/Code.gs` → paste into the editor
+- [ ] Replace `PASTE_YOUR_GEMINI_KEY_HERE` with your key (keep the quotes) → **💾 Save**
 
-## 3. Create the Data Table (3 min)
-This is what lets "Show last summary" work without re-scanning.
-- [ ] n8n → **Data Tables → Create Data Table**, name it `latest_summary`
-- [ ] Add two **String** columns: `generatedAt` and `payload`
-- [ ] In the workflow, open **Data Table: save latest** AND **Data Table: read latest** →
-      select `latest_summary` in each
+> You don't pick a Gemini model. The script asks Google which models your key can use and
+> auto-selects the best available Flash model, so retired model names can't break it.
 
-## 4. Connect credentials (5 min)
-- [ ] **Gmail:** open the **Gmail: last 24h** node → Credentials → *Create new* → **Gmail OAuth2**
-      → *Sign in with Google* → allow. (If "app not verified" → Advanced → Go to n8n.)
-- [ ] Set that **same** Gmail credential on every other Gmail node: *starred overdue*,
-      *add Subscriptions label*, *archive*, *create draft*, *re-add INBOX*, and the
-      **Gmail API: create filter** HTTP node.
-- [ ] **Gemini:** open **Gemini: summarize** → Credentials → *Create new* →
-      **Google Gemini(PaLM) API** → paste your `AIza...` key.
+## 3. Authorize it (2 min)
+- [ ] Pick **`runTriage`** from the function dropdown → **▶ Run**
+- [ ] **Review permissions** → your account → "Google hasn't verified this app" →
+      **Advanced → Go to (project) → Allow**
+      (It's *your* script reading *your* Gmail.)
+- [ ] Execution log shows it finished → Gmail + Gemini both work
+- [ ] Gemini erroring? Run **`listAvailableModels`** — the log prints every model your key
+      can use and which one the script will pick
 
-## 5. ⚠️ The one step everyone misses
-- [ ] In the **Gemini: summarize** node, turn **ON** "Output Content as JSON".
-      If this is off, **every bucket comes back empty** and the app shows nothing.
+## 4. ⚠️ The step everyone gets wrong
+- [ ] **Deploy → New deployment** → ⚙ gear next to "Select type" → **Web app**
+- [ ] **Execute as: Me**
+- [ ] **Who has access: Anyone** ← required. "Only myself" gives the desktop app a **401**,
+      because it calls the URL without a Google login. The URL is long and unguessable —
+      treat it like a password. The script still only ever touches *your* Gmail.
+- [ ] **Deploy** → authorize again if asked → copy the **Web app URL** (ends in `/exec`)
 
-## 6. Subscriptions label (for unsubscribe/archive actions) (3 min)
-- [ ] In Gmail: create a label named **Subscriptions**
-- [ ] Workflow → **Gmail: add Subscriptions label** node → pick `Subscriptions` from the dropdown
-- [ ] Workflow → **Gmail API: create filter** node → replace `REPLACE_WITH_SUBSCRIPTIONS_LABEL_ID`
-      with the Subscriptions label's ID (run **Gmail → Get Labels** once to find it, or read it
-      from the label's URL in Gmail)
+## 5. Connect Retro Messenger (1 min)
+- [ ] Retro Messenger → **⚙️ Settings** → paste the `/exec` URL into **Backend URL**
+- [ ] **Test connection** → should say "✓ Connected"
+- [ ] **Uncheck Demo mode** → **Save**
+- [ ] Ask "What's the most important thing in my email? 📬" → real inbox 🎉
 
-## 7. Test, then activate (3 min)
-- [ ] Click **Execute Workflow** → open the **Normalize** node's output → confirm buckets have
-      items (empty everywhere = the JSON toggle in step 5 is off)
-- [ ] Toggle the workflow **Active** (top-right). This turns on the webhooks.
-
-## 8. Connect Retro Messenger (2 min)
-- [ ] Open any **Webhook** node, copy the **Production URL** — it looks like
-      `https://<workspace>.app.n8n.cloud/webhook/inbox-summary/run`
-- [ ] Your **base URL** is only the part before `/webhook/…`:
-      `https://<workspace>.app.n8n.cloud`  ← no trailing slash, no `/webhook`
-- [ ] In Retro Messenger → **⚙️ Settings** → paste the base URL → **Test connection**
-      (should say "✓ Connected") → **uncheck Demo mode** → **Save**
-- [ ] Ask "What's the most important thing in my email? 📬" → it now reads your real inbox
+## 6. Optional: morning refresh
+- [ ] Run `installMorningTrigger` once → refreshes your summary daily at 8am, so
+      "Show last summary" is instant
 
 ---
 
 ## First-run safety
 - Test **Unsubscribe** and **Archive + label** on a throwaway newsletter first.
-- Unsubscribe is outward-facing and hard to undo. Draft reply only ever creates a Gmail *draft* —
-  it never sends. Archive is reversible.
+- **Unsubscribe** is outward-facing and hard to undo.
+- **Draft reply** only ever creates a Gmail *draft* — it never sends.
+- **Archive** is reversible.
+
+## If you edit Code.gs later
+**Deploy → Manage deployments → ✏️ edit → Version: New version → Deploy.**
+The `/exec` URL stays the same, so you don't touch the app.
 
 ## If something's off
-- **App says "isn't hooked up yet"** → base URL is blank/wrong, or Demo mode is still on.
-- **"Connected" but buckets empty** → Gemini "Output as JSON" toggle (step 5).
-- **Test connection fails** → workflow isn't **Active**, or the URL has a trailing slash / `/webhook`.
-- **403 on an action** → re-create the Gmail OAuth2 credential (needs modify scope) and re-authorize.
-- **Gemini 429** → free-tier momentarily saturated; wait and retry, or switch model to
-  `gemini-1.5-flash` in the Gemini node.
+| Symptom | Cause |
+|---|---|
+| App says "isn't hooked up yet" | Backend URL blank/wrong, or Demo mode still on |
+| **401** on Test connection | Deployment "Who has access" isn't **Anyone** (step 4) |
+| "Connected" but buckets empty | Check the Gemini key; read **Extensions → Executions** for the real error |
+| "Show last summary" is blank | Nothing cached yet — run once first, or set up the morning trigger |
+| Slow first run | Gmail + Gemini takes ~10–20s; the app waits up to 2 min |
+| Gemini **429** | Rate limit. Wait ~1 min, run once more. Don't spam ▶ Run. |
+
+## Uninstalling
+Three ways, all the same uninstaller:
+- **Start Menu → "Uninstall Retro Messenger"**
+- **Settings → Apps → Installed apps → Retro Messenger → Uninstall**
+- Run `Uninstall Retro Messenger.exe` in
+  `%LOCALAPPDATA%\Programs\Retro Messenger\`
+
+Your settings live in `%APPDATA%\retro-messenger\` and are **left behind** on purpose, so a
+reinstall keeps your backend URL. Delete that folder to wipe them.
+
+## Sharing the app with someone else
+They need **their own** Apps Script deployment and **their own** Gemini key — walk them
+through this same doc. Never hand over your `/exec` URL: it executes as you, against your
+Gmail, including archive and unsubscribe.
+
+---
+
+<details>
+<summary>Legacy: n8n backend (superseded)</summary>
+
+Earlier versions used an **n8n Cloud** workflow instead. The app still supports it —
+`main/n8n-client.js` sniffs the saved URL and routes `script.google.com` / `/exec` URLs to
+the Apps Script handler, anything else to n8n's path-per-action webhooks.
+
+Apps Script replaced it: free, no trial clock, no memory limits, fewer moving parts. Note that
+some newer actions (`syncNew`, `learnTone`, `thread`) are **Apps Script only** — on an n8n URL
+they return `NOT_SUPPORTED`.
+
+To use n8n anyway: import `inbox-summary.json` from the original `inbox-summary` extension
+project, create a `latest_summary` Data Table (String columns `generatedAt` and `payload`),
+wire one Gmail OAuth2 credential onto every Gmail node, paste the Gemini key into
+**Gemini: summarize**, turn **ON** that node's "Output Content as JSON" (off = every bucket
+comes back empty), create a `Subscriptions` Gmail label and set its ID in the
+**Gmail API: create filter** node, activate the workflow, then paste the base URL
+(`https://<workspace>.app.n8n.cloud` — no trailing slash, no `/webhook`) into Settings.
+
+</details>
