@@ -32,7 +32,8 @@
   }
 
   // ---- handled/moved persistence (survives refresh + restart) -----------
-  // handledIds: { emailId: savedAtMs }  · movedItems: { emailId: bucketKey }
+  // handledIds: { emailId: savedAtMs }
+  // movedItems: { emailId: { bucket, savedAt } }
   const DAY = 86400000;
   function loadStore(key) {
     try {
@@ -46,17 +47,34 @@
   }
   let handledIds = loadStore("handledIds");
   let movedItems = loadStore("movedItems");
-  // Prune handled entries older than 14 days so the store can't grow forever.
-  (function pruneHandled() {
-    const now = Date.now();
-    let changed = false;
+  // Both stores are keyed by Gmail message id and would otherwise grow forever.
+  // Drop anything older than 14 days on load.
+  (function pruneStores() {
+    const cutoff = Date.now() - 14 * DAY;
+
+    let handledChanged = false;
     Object.keys(handledIds).forEach((id) => {
-      if (now - handledIds[id] > 14 * DAY) {
+      if (!(handledIds[id] > cutoff)) {
         delete handledIds[id];
-        changed = true;
+        handledChanged = true;
       }
     });
-    if (changed) saveStore("handledIds", handledIds);
+    if (handledChanged) saveStore("handledIds", handledIds);
+
+    let movedChanged = false;
+    Object.keys(movedItems).forEach((id) => {
+      const entry = movedItems[id];
+      if (typeof entry === "string") {
+        // Pre-0.7.11 entries were a bare bucket key with no timestamp. Stamp
+        // them now so they age out on the same clock as everything else.
+        movedItems[id] = { bucket: entry, savedAt: Date.now() };
+        movedChanged = true;
+      } else if (!entry || !entry.bucket || !(entry.savedAt > cutoff)) {
+        delete movedItems[id];
+        movedChanged = true;
+      }
+    });
+    if (movedChanged) saveStore("movedItems", movedItems);
   })();
 
   // Re-apply persisted handled flags + bucket moves onto a freshly loaded summary.
@@ -66,7 +84,8 @@
     const cleaned = summary.cleanedUp || [];
     for (let i = cleaned.length - 1; i >= 0; i--) {
       const it = cleaned[i];
-      const to = movedItems[it.id];
+      const moved = movedItems[it.id];
+      const to = moved && moved.bucket;
       if (to && summary[to]) {
         cleaned.splice(i, 1);
         summary[to].unshift(it);
@@ -78,6 +97,39 @@
         it._handled = !!handledIds[it.id];
       });
     });
+  }
+
+  // The backend prunes board items it finds are no longer unread in Gmail —
+  // read on another device, archived, deleted — and reports their ids. Take
+  // them off the board and out of any card already sitting in the chat log,
+  // so "I read that on my phone" actually makes it disappear here.
+  function dropRemovedItems(ids) {
+    if (!Array.isArray(ids) || !ids.length) return 0;
+    const gone = new Set(ids.map(String));
+    let removed = 0;
+    if (summary) {
+      T.ORDER.forEach((key) => {
+        if (!Array.isArray(summary[key])) return;
+        summary[key] = summary[key].filter((item) => {
+          if (!item || !gone.has(String(item.id))) return true;
+          removed++;
+          return false;
+        });
+      });
+    }
+    // Sweep the transcript even when the board no longer lists the item — a
+    // fresh scan replaces the board but leaves earlier cards on screen.
+    gone.forEach((id) => {
+      document
+        .querySelectorAll('.item-card[data-item-id="' + CSS.escape(id) + '"]')
+        .forEach((card) => card.remove());
+      delete handledIds[id];
+      delete movedItems[id];
+    });
+    saveStore("handledIds", handledIds);
+    saveStore("movedItems", movedItems);
+    if (summary) updateProgress();
+    return removed;
   }
 
   // ---- session progress ---------------------------------------------------
@@ -113,7 +165,7 @@
       const idx = arr.indexOf(item);
       if (idx !== -1) arr.splice(idx, 1);
       if (summary[to]) summary[to].unshift(item);
-      movedItems[item.id] = to;
+      movedItems[item.id] = { bucket: to, savedAt: Date.now() };
       saveStore("movedItems", movedItems);
       updateProgress(); // total grows by 1 — honest countdown
       return;
@@ -185,9 +237,18 @@
     }
     if (!r || !r.ok || !r.data) return showError(r, false);
     const incoming = r.data;
+    const dropped = dropRemovedItems(incoming.removedIds);
+    const clearedNote = dropped
+      ? ` I also took off ${dropped} you'd already read elsewhere.`
+      : "";
     const added = Number(incoming.addedCount || 0);
     if (!added) {
-      UI.addBotMsg("No new unread messages — your board is unchanged. 🌿");
+      UI.addBotMsg(
+        dropped
+          ? `No new mail, but I cleared ${dropped} email${dropped === 1 ? "" : "s"} you'd already read elsewhere. 🌿`
+          : "No new unread messages — your board is unchanged. 🌿"
+      );
+      if (dropped) overview();
       return;
     }
     if (!summary) summary = Object.assign({}, incoming);
@@ -205,7 +266,9 @@
     applyPersistence();
     updateProgress();
     preloadSummaryThreads(incoming);
-    UI.addBotMsg(`${added} new message${added === 1 ? " was" : "s were"} added. Your progress is preserved. 📬`);
+    UI.addBotMsg(
+      `${added} new message${added === 1 ? " was" : "s were"} added. Your progress is preserved.${clearedNote} 📬`
+    );
     overview();
   }
 
@@ -315,6 +378,9 @@
     }
     sessionActed = 0;
     celebrated = false;
+    // The backend reports anything it pruned as no-longer-unread; clear those
+    // cards out of the transcript so a stale one can't be acted on.
+    dropRemovedItems(summary.removedIds);
     applyPersistence();
     updateProgress();
     preloadSummaryThreads(summary);
@@ -362,7 +428,7 @@
   }
 
   function openBucket(key) {
-    const items = key === "cleanedUp" ? (summary && summary[key]) || [] : bucketItems(key);
+    const items = bucketItems(key);
     if (!items.length) {
       UI.addBotMsg(`${T.BUCKETS[key].badge} — nothing left here. 🎉`);
     } else if (key === "whatsNew" || key === "importantUrgent") {

@@ -462,14 +462,42 @@ async function runDiagnostics() {
     await new Promise((r) => setTimeout(r, 200));
     log("cleaned-up has clear-all:", await run("[...document.querySelectorAll('#chipTray button')].some(b=>/clear all/i.test(b.textContent))"));
     log("cleaned-up uses restore label:", await run("[...document.querySelectorAll('.item-card .card-actions button')].some(b=>/restore/i.test(b.textContent))"));
+
+    // Per-item "Mark as done": retire one cleaned-up email without clearing the
+    // whole pile. Cards accumulate in the transcript, so always act on the
+    // newest render of an id.
+    const newestCard = (id) => "[...document.querySelectorAll('.item-card[data-item-id=\"" + id + "\"]')].pop()";
+    log("cleaned-up cards offer mark-as-done:", await run("[...document.querySelectorAll('.item-card[data-item-id^=\"m-clean-\"] .card-actions button')].filter(b=>/mark as done/i.test(b.textContent)).length === 2"));
+    await run("[..." + newestCard("m-clean-1") + ".querySelectorAll('.card-actions button')].find(b=>/mark as done/i.test(b.textContent)).click()");
+    await new Promise((r) => setTimeout(r, 600));
+    log("mark-as-done collapses its card:", await run(newestCard("m-clean-1") + ".classList.contains('handled')"));
+    log("mark-as-done reports done:", await run("/done/i.test(" + newestCard("m-clean-1") + ".querySelector('.card-result').textContent)"));
+    log("mark-as-done offers undo:", await run("!!" + newestCard("m-clean-1") + ".querySelector('.undo-link')"));
+    await run("[...document.querySelectorAll('#chipTray button')].find(b=>/back to summary/i.test(b.textContent)).click()");
+    await new Promise((r) => setTimeout(r, 150));
+    log("cleaned-up count drops by one:", await run("[...document.querySelectorAll('#chipTray button')].some(b=>/cleaned up \\(1\\)/i.test(b.textContent))"));
+    await run("[...document.querySelectorAll('#chipTray button')].find(b=>/cleaned up/i.test(b.textContent)).click()");
+    await new Promise((r) => setTimeout(r, 200));
+    // The list length must agree with the chip count — they used to diverge.
+    log("done card leaves the cleaned-up list:", await run("[...document.querySelectorAll('.msg-row.bot .bubble')].pop().textContent.includes('1 item')"));
+    await run(newestCard("m-clean-1") + ".querySelector('.undo-link').click()");
+    await new Promise((r) => setTimeout(r, 600));
+    log("undo returns it to the pile:", await run("!" + newestCard("m-clean-1") + ".classList.contains('handled')"));
+    // Demo mode used to report done:1 for every bulk call, which read as a
+    // partial failure and broke Clear all on a multi-item pile.
+    log("bulk mark-read reports every id:", await run("window.retro.action.markRead(['a','b','c']).then(r=>r.ok && r.data.done === 3)"));
+    await run("[...document.querySelectorAll('#chipTray button')].find(b=>/back to summary/i.test(b.textContent)).click()");
+    await new Promise((r) => setTimeout(r, 150));
+    await run("[...document.querySelectorAll('#chipTray button')].find(b=>/cleaned up/i.test(b.textContent)).click()");
+    await new Promise((r) => setTimeout(r, 200));
     if (process.env.RM_CLEANED_SHOT) {
       const cleanedImg = await wc.capturePage();
       fs.writeFileSync(process.env.RM_CLEANED_SHOT, cleanedImg.toPNG());
       log("cleaned-up screenshot saved:", process.env.RM_CLEANED_SHOT);
     }
-    await run("[...document.querySelectorAll('.item-card .card-actions button')].find(b=>/restore/i.test(b.textContent)).click()");
+    await run("[..." + newestCard("m-clean-1") + ".querySelectorAll('.card-actions button')].find(b=>/restore/i.test(b.textContent)).click()");
     await new Promise((r) => setTimeout(r, 150));
-    await run("[...document.querySelectorAll('.item-card .tmpl-list button')].find(b=>/urgent/i.test(b.textContent)).click()");
+    await run("[..." + newestCard("m-clean-1") + ".querySelectorAll('.tmpl-list button')].find(b=>/urgent/i.test(b.textContent)).click()");
     await new Promise((r) => setTimeout(r, 200));
     log("moved card re-rendered as urgent:", await run("[...document.querySelectorAll('.item-card .card-badge')].some(b=>/Important/i.test(b.textContent))"));
     await run("[...document.querySelectorAll('#chipTray button')].find(b=>/clear all/i.test(b.textContent)).click()");

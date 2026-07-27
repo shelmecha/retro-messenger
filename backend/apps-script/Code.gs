@@ -10,7 +10,7 @@
  * into the app's Settings. Full steps in SETUP-APPSSCRIPT.md.
  */
 
-const BACKEND_VERSION = "0.7.8.3";
+const BACKEND_VERSION = "0.7.11";
 
 const CONFIG = {
   GEMINI_API_KEY: "PASTE_YOUR_GEMINI_KEY_HERE", // from https://aistudio.google.com/apikey
@@ -25,9 +25,13 @@ const CONFIG = {
   MODEL_SELECTION_VERSION: "compact-triage-v3",
   GEMINI_MODEL_ATTEMPTS: 3,
   GEMINI_BATCH_SIZE: 10,
-  INBOX_QUERY: "in:inbox newer_than:3d",
-  INBOX_LIMIT: 20,
-  STARRED_QUERY: "is:starred older_than:5d",
+  // Unread-only, no date window: the board IS your unread mail. Anything you
+  // read — here or in Gmail on another device — drops off the next scan.
+  // Search returns newest-first, so a backlog surfaces its newest INBOX_LIMIT
+  // and drains as you mark things done.
+  INBOX_QUERY: "in:inbox is:unread",
+  INBOX_LIMIT: 30,
+  STARRED_QUERY: "is:starred is:unread older_than:5d",
   STARRED_LIMIT: 10,
   SUMMARY_REUSE_MINUTES: 10,
   AI_FALLBACK_RETRY_MINUTES: 1,
@@ -92,7 +96,7 @@ function doGet(e) {
     const action = (e && e.parameter && e.parameter.action) || "latest";
     if (action === "version") return json({ ok: true, backendVersion: BACKEND_VERSION });
     if (action === "run") return json(runTriage());
-    return json(getLatest());
+    return json(getLatestForClient());
   } catch (err) {
     // Return the error AS JSON so the app can show the real reason instead of
     // an un-parseable HTML crash page.
@@ -152,7 +156,7 @@ function json(obj) {
 function runTriage() {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(1500)) {
-    const saved = getLatest();
+    const saved = getLatestForClient();
     if (hasSavedSummary(saved)) {
       saved.reusedCachedSummary = true;
       saved.cacheNotice = "Another inbox scan is already running, so I loaded your last saved summary.";
@@ -175,6 +179,14 @@ function runTriageLocked() {
     ? CONFIG.AI_FALLBACK_RETRY_MINUTES
     : CONFIG.SUMMARY_REUSE_MINUTES;
   if (ageMinutes !== null && ageMinutes < reuseMinutes) {
+    // The cache path never touches Gmail, so reconcile before handing it back —
+    // otherwise mail read elsewhere sits on the board for the reuse window.
+    const prunedIds = pruneReadItems(saved);
+    if (prunedIds.length) {
+      saved.unreadCount = countUnread();
+      saved.removedIds = prunedIds;
+      saveLatest(saved);
+    }
     saved.reusedCachedSummary = true;
     saved.cacheNotice =
       saved.aiFallback
@@ -187,8 +199,9 @@ function runTriageLocked() {
   const items = gather();
   if (!items.length) {
     const empty = Object.assign({}, EMPTY_SUMMARY, {
-      headline: "Your inbox is quiet — nothing new to triage right now. 🌿",
+      headline: "You're at zero unread — nothing waiting for you. 🌿",
       generatedAt: new Date().toISOString(),
+      shownCount: 0,
     });
     saveLatest(empty);
     PropertiesService.getScriptProperties().setProperty("lastInboxSync", syncStarted.toISOString());
@@ -204,8 +217,28 @@ function runTriageLocked() {
   }
   summary.generatedAt = new Date().toISOString();
   summary.unreadCount = countUnread();
+  summary.shownCount = items.length;
+  appendBacklogNotice(summary);
   saveLatest(summary);
   PropertiesService.getScriptProperties().setProperty("lastInboxSync", syncStarted.toISOString());
+  return summary;
+}
+
+// INBOX_LIMIT caps how much one scan can classify, so a partial board must say
+// so out loud — a truncated scan reading as "all clear" is the same class of
+// lie as a crash reading as an empty inbox.
+function appendBacklogNotice(summary) {
+  const shown = Number(summary.shownCount || 0);
+  const unread = Number(summary.unreadCount || 0);
+  const waiting = unread - shown;
+  if (shown <= 0 || waiting <= 0) return summary;
+  summary.backlogCount = waiting;
+  // countUnread() stops counting at 100, so past that the true backlog is bigger.
+  const amount = (unread >= 100 ? "at least " : "") + waiting + " more";
+  summary.headline =
+    String(summary.headline || "").trim() +
+    " I loaded your " + shown + " newest unread — " + amount +
+    " still waiting. Clear these and tap refresh for the next batch.";
   return summary;
 }
 // Deliberate, additive sync: summarize only unread messages received since the
@@ -213,6 +246,10 @@ function runTriageLocked() {
 function syncNew() {
   const props = PropertiesService.getScriptProperties();
   const latest = getLatest();
+  // This path is additive, so without pruning first the board would only ever
+  // grow. Prune before building `seen` so an item you deliberately marked
+  // unread again is free to come back.
+  const removedIds = pruneReadItems(latest);
   const fallback = latest.generatedAt || new Date(Date.now() - 3 * 86400000).toISOString();
   const since = new Date(props.getProperty("lastInboxSync") || fallback);
   const syncAt = new Date();
@@ -231,8 +268,21 @@ function syncNew() {
     });
   });
   if (!additions.length) {
+    if (removedIds.length) {
+      latest.generatedAt = syncAt.toISOString();
+      latest.unreadCount = countUnread();
+      saveLatest(latest);
+    }
     props.setProperty("lastInboxSync", syncAt.toISOString());
-    return Object.assign({}, EMPTY_SUMMARY, { headline: "No new unread messages — board unchanged.", generatedAt: syncAt.toISOString(), unreadCount: countUnread(), addedCount: 0 });
+    return Object.assign({}, EMPTY_SUMMARY, {
+      headline: removedIds.length
+        ? "No new unread messages — I just cleared out mail you've read since."
+        : "No new unread messages — board unchanged.",
+      generatedAt: syncAt.toISOString(),
+      unreadCount: countUnread(),
+      addedCount: 0,
+      removedIds: removedIds,
+    });
   }
   let delta;
   try {
@@ -256,6 +306,7 @@ function syncNew() {
   delta.generatedAt = latest.generatedAt;
   delta.unreadCount = latest.unreadCount;
   delta.addedCount = additions.length;
+  delta.removedIds = removedIds;
   return delta;
 }
 
@@ -274,6 +325,32 @@ function hasSavedSummary(summary) {
   if (!summary) return false;
   if (summary.generatedAt) return true;
   return bucketKeys().some(function (key) { return (summary[key] || []).length > 0; });
+}
+
+// Drop board items whose Gmail thread is no longer unread — read on another
+// device, archived, or deleted. A full scan rebuilds the buckets from Gmail so
+// it prunes itself; the saved board does not, so every path that can hand back
+// a *stored* board runs this first. Returns the ids it removed, so the app can
+// drop the matching cards from a board it is already showing.
+function pruneReadItems(summary) {
+  const removedIds = [];
+  if (!summary) return removedIds;
+  bucketKeys().forEach(function (key) {
+    const kept = [];
+    (summary[key] || []).forEach(function (item) {
+      if (!item || !item.id) return; // no id → can't verify, can't action
+      let unread = false;
+      try {
+        unread = GmailApp.getMessageById(item.id).getThread().isUnread();
+      } catch (_) {
+        unread = false; // message gone
+      }
+      if (unread) kept.push(item);
+      else removedIds.push(item.id);
+    });
+    summary[key] = kept;
+  });
+  return removedIds;
 }
 
 function summaryAgeMinutes(summary) {
@@ -1305,6 +1382,24 @@ function getLatest() {
   } catch (_) {
     return Object.assign({}, EMPTY_SUMMARY, { headline: "(stored summary was unreadable)" });
   }
+}
+
+// The stored board, reconciled against Gmail's read state before the app sees
+// it. Use this — not getLatest() — anywhere a saved board is returned to a
+// client, so "Show last summary" can never resurrect mail you've already read.
+//
+// Deliberately does NOT persist the pruned board: the app fires `latest` and
+// `run` concurrently to warm its thread cache, and an unlocked write here could
+// land after a fresh scan and clobber it. The lock-protected run/syncNew paths
+// do the persisting; this one just refuses to hand back stale cards.
+function getLatestForClient() {
+  const saved = getLatest();
+  const removedIds = pruneReadItems(saved);
+  if (removedIds.length) {
+    saved.unreadCount = countUnread();
+    saved.removedIds = removedIds;
+  }
+  return saved;
 }
 
 /* ======================= OPTIONAL: MORNING RUN ======================= */

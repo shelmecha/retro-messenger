@@ -2,6 +2,13 @@
 
 All notable changes, newest first. Version shows in the title bar and Settings.
 
+## v0.7.11
+- **Read it in Gmail, it disappears here** — the board now only ever shows mail that is still unread. Anything you open on your phone or mark read in the app drops off the next refresh instead of coming back, and the saved board is reconciled against Gmail rather than growing forever.
+- **All your unread, not just the last three days** — the scan no longer stops at 72 hours, so older unread mail finally surfaces. Each scan loads your 30 newest unread and says how many are still waiting, so a partial board can never read as "all clear."
+- **"Mark as done" on Cleaned up** — retire one reviewed email at a time, with Undo, instead of only being able to clear the whole pile. "Clear all" is still there.
+- **Cleaned up list matches its own count** — emails you'd already handled no longer linger in the list while the chip counted them as gone.
+- **Requires an Apps Script redeploy** (backend 0.7.11). Check `?action=version` after deploying.
+
 ## v0.7.10
 - **Uninstall from the Start Menu** — an “Uninstall Retro Messenger” entry now sits next to the app shortcut. The uninstaller always shipped inside the install folder and in Settings → Apps, but with nothing in the Start Menu it looked like it was missing.
 - **Setup guide rewritten for Apps Script** — SETUP.md now documents the Google Apps Script backend as the main path, adds an Uninstalling section, and keeps the old n8n instructions in a collapsed legacy note.

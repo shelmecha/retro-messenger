@@ -172,14 +172,18 @@
       );
     }
 
-    // ✓ Mark read — everything except cleaned-up (which is already "done").
-    if (cfg.type !== "cleaned" && item.id) {
+    // Retire one email. Cleaned-up says "done" rather than "mark read" — it's
+    // the per-card version of "Clear all", and the point is finishing with it,
+    // not the Gmail mechanic. Same call either way: the thread is marked read.
+    if (item.id) {
+      const isCleaned = cfg.type === "cleaned";
       actions.appendChild(
-        actBtn("✓ Mark read", null, async function () {
+        actBtn(isCleaned ? "✓ Mark as done" : "✓ Mark read", null, async function () {
           this.disabled = true;
           const r = await window.retro.action.markRead([item.id]);
           if (r && r.ok) {
-            showResult(card, r.mock ? "✓ (demo) marked read " : "✓ Marked read ");
+            const doneMsg = isCleaned ? "✓ Done — marked read in Gmail " : "✓ Marked read ";
+            showResult(card, r.mock ? "✓ (demo) " + (isCleaned ? "done " : "marked read ") : doneMsg);
             markHandled(card, item, onChange);
             addUndo(card, bucketKey, item, onChange, options);
           } else if (r && r.code === "NOT_SUPPORTED") {
