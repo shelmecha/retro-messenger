@@ -2,26 +2,27 @@
 
 **What it is:** an MSN/Windows-98–styled Electron desktop app that pops up as a retro chat buddy and helps Shelvi triage her Gmail inbox. Menu-driven (tap chips, no free-typing to an AI). All email/AI work happens in a Google Apps Script backend she owns; the app is a thin client with no secrets in it.
 
-- **Code:** `C:\dev\retro-messenger` (local), mirrored at `github.com/shelmecha/retro-messenger` (public repo)
-- **Current version:** v0.6.1
+- **Code:** `C:\Users\Shelvi\Documents\GitHub\retro-messenger` (local), mirrored at `github.com/shelmecha/retro-messenger` (public repo)
+- **Current version:** see `package.json` / `CHANGELOG.md` — this document is narrative background and is not re-versioned every release
 - **Stack:** Electron (plain HTML/CSS/JS, no bundler/framework) + [98.css](https://jdan.github.io/98.css/) for the retro chrome. Backend: Google Apps Script (`backend/apps-script/Code.gs`) calling the Gmail API + Gemini.
 - **Distribution:** GitHub Releases + `electron-updater` — the app auto-updates itself after this version.
 
 ---
 
-## 1. Current features (as of v0.6.1)
+## 1. Current features
 
 ### Core loop
 - Auto-launches at login, lives in the system tray, MSN-style chat window
 - Menu-driven bot ("What's the most important thing in my email? 📬" / "Show last summary" / "⚙️ Settings") — no free-text prompt
-- Pulls Gmail (last 24h inbox + starred-overdue), asks Gemini to triage into 7 buckets: 🔴 Important/Urgent, ⭐ Starred overdue, ✉️ Needs follow-up, 🗑️ Can unsubscribe, 📌 Worth keeping, 🆕 What's new, 🧹 Cleaned up
+- Pulls **unread** Gmail (no date limit, 30 newest per scan + starred-overdue), asks Gemini to triage into 7 buckets: 🔴 Important/Urgent, ⭐ Starred overdue, ✉️ Needs follow-up, 🗑️ Can unsubscribe, 📌 Worth keeping, 🆕 What's new, 🧹 Cleaned up
 - Session progress bar ("N to go" countdown, fills as items are handled, "all clear 🎉" at zero) — **persists** across Back-to-summary/refresh/app-restart via localStorage
 - Handled cards collapse to a slim strikethrough line; bucket counts tick down live
 
 ### Per-email actions
 - **✍️ Draft reply** — pick a starting point (Gemini's suggestion or a canned template) → **editable textarea** → **📨 Send now** (real threaded Gmail reply, never sends unseen text) or **💾 Save draft**
 - **✓ Mark read** (with **↩ Undo**), **🗑️ Unsubscribe** (one-click RFC 8058 where possible, else opens the opt-out page), **Archive + label** (Worth-keeping bucket, adds a "Subscriptions" Gmail label)
-- **🚚 Not junk → move to…** on Cleaned-up cards — rescues a mis-filed email into Urgent/Follow-up/What's-new in-app
+- **✓ Mark as done** on Cleaned-up cards (with **↩ Undo**) — retires one reviewed email at a time by marking its thread read in Gmail; **✓ Clear all** still does the whole pile at once
+- **↩ Restore…** on Cleaned-up cards — rescues a mis-filed email into Urgent/Follow-up/What's-new in-app
 - **🔗 Open in Gmail** and **📖 Read** (opens a **second MSN-style window** beside the main one showing the full thread in plain text — no tracking pixels — with its own reply/draft box and "Open in Gmail ↗")
 - **🧹 Clean sweep** at session end — offers to mark the whole inbox read if unread remain
 
@@ -56,6 +57,7 @@
 
 ## 3. Recommendations for whoever picks this up
 
+0. **Read `CLAUDE.md` first** — it's the short operational version of this document: redeploy rules, how to run the diagnostic and the offline backend harness, and the settled decisions not to relitigate.
 1. **Read `CHANGELOG.md` and the memory file before touching anything.** This project has been built through many small conversational iterations; the changelog is the fastest way to understand what exists and why.
 2. **Always run the `RM_DIAG=1` diagnostic after any renderer/main change**, using a throwaway `--user-data-dir` so it exercises demo mode, not Shelvi's real settings. It has caught every regression so far — don't skip it.
 3. **Backend changes require a manual redeploy she has to do herself** (paste Code.gs → re-add her Gemini key → Deploy → Manage deployments → New version). This has been the single biggest friction point in the whole project — she has repeatedly pasted stale copies from old Notepad windows. **Always hand her the file via clipboard (`Set-Clipboard`), never "open the file and copy it."** App-only changes need no redeploy — say so explicitly every time, it matters to her.

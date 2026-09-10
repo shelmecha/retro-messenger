@@ -2,7 +2,7 @@
 
 An MSN/Windows-98 styled desktop buddy that pops up when you start your PC and helps you tackle your inbox. Built with Electron + [98.css](https://jdan.github.io/98.css/).
 
-A menu-driven chat (tap chips, not free-type) that pulls a triaged summary of your Gmail — Urgent / Follow-up / Starred-overdue / Unsubscribe / Worth-keeping / What's new / Cleaned up — and lets you reply, unsubscribe, archive, mark read, and read full threads, one item at a time.
+A menu-driven chat (tap chips, not free-type) that pulls a triaged summary of your **unread** Gmail — Urgent / Follow-up / Starred-overdue / Unsubscribe / Worth-keeping / What's new / Cleaned up — and lets you reply, unsubscribe, archive, mark read, and read full threads, one item at a time. Read something in Gmail and it drops off the board on the next refresh.
 
 ## How it works
 
@@ -14,13 +14,13 @@ A bundled **Demo mode** (on by default) serves `mock/sample-triage.json` so the 
 - Email triage into actionable buckets, with a session progress bar
 - Editable reply → real send or save-as-draft (threaded correctly)
 - 📖 second "reader" window shows a full thread in plain text (no tracking pixels)
-- Per-item mark-read with undo, "not junk → move to…" rescue, end-of-session clean sweep
+- Per-item mark-read / "mark as done" with undo, "↩ Restore…" rescue for mis-filed mail, end-of-session clean sweep
 - Auto-launch at login, system-tray resident, **auto-updates from GitHub Releases**
 
 ## Run it
 
 ```powershell
-cd C:\dev\retro-messenger
+cd path\to\retro-messenger
 npm install
 npm start            # run the app
 npm run dist         # build a Windows installer into dist/

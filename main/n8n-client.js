@@ -210,7 +210,11 @@ async function call(pathKey, method = "GET", body) {
       return { ok: true, mock: true, data: { ok: true, done: 20, message: "Writing style updated from 20 sent messages." } };
     }
     await wait(400);
-    return { ok: true, mock: true, data: { done: (body && body.items && body.items.length) || 1 } };
+    // markRead/markUnread/label/unarchive send `ids`, unsubscribe sends `items`.
+    // Reporting a flat 1 made bulk actions look like partial failures to the
+    // caller's done-vs-requested check (e.g. Clear all on a multi-item pile).
+    const affected = (body && (body.ids || body.items)) || [];
+    return { ok: true, mock: true, data: { done: affected.length || 1 } };
   }
 
   // ---- Live mode ------------------------------------------------------
